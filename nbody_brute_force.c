@@ -107,68 +107,6 @@ void print_all_particles(FILE* f) {
     fprintf(f, "particle={pos=(%f,%f), vel=(%f,%f)}\n", p->x_pos, p->y_pos, p->x_vel, p->y_vel);
   }
 }
-
-void slave_compute_force(int index) {
-
-  int i = index - 1;  
-  int j;
-  int fin_signal = 1;
-
-  particles[i].x_force = 0;
-  particles[i].y_force = 0;
-  for(j=0; j<nparticles; j++) {
-    particle_t*p = &particles[j];
-    /* compute the force of particle j on particle i */
-    compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
-  }
-  MPI_Allgather(&(particles[i]), sizeof(particle_t), MPI_DOUBLE, &(particles[i]), sizeof(particle_t), MPI_DOUBLE, MPI_COMM_WORLD);
-  // Need barrier??????
-  // MPI_Barrier(MPI_COMM_WORLD);
-
-  MPI_Send(&fin_signal, 1, MPI_INT, 0, compute_tag, MPI_COMM_WORLD);
-  
-}
-
-
-void slave(int rank) {
-
-  int terminated = 0, index_todo;
-  int fin_signal = 1;
-  int flag;
-  MPI_Status status;
-  slave_compute_force(rank);
-  
-  while (!terminated) {
-    MPI_Iprobe(0, MPI_ANY_TAG, MPI_COMM_WORLD, &flag, &status);
-    if (flag) {
-      int tag = status.MPI_TAG;
-      int src = status.MPI_SOURCE;
-      MPI_Recv(&index_todo, 1, MPI_INT, src, tag, MPI_COMM_WORLD, &status);      
-      if (index_todo != -1) {
-        if (tag == compute_tag) {
-          slave_compute_force(index_todo);
-        } else if (tag == move_tag) {
-          move_particle(&particles[index_todo], dt);
-
-          //MPI_Allgather(&(particles[index_todo]), sizeof(particle_t), MPI_DOUBLE, particles, sizeof(particle_t), MPI_DOUBLE, MPI_COMM_WORLD);
-          /* Computation of dt involves max_speed and max_acc, thus sync using broadcast */
-          MPI_Bcast(&max_speed, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-          MPI_Bcast(&max_acc, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-          // TODOs: Need to add MPI_Barrier?????
-          //MPI_Barrier(MPI_COMM_WORLD);
-          MPI_Send(&fin_signal, 1, MPI_INT, 0, tag, MPI_COMM_WORLD);
-
-        }
-      } else { // terminate this slave
-        terminated = -1;
-        break;
-      }
-    }   
-  }
-
-}
-
 /*
   Simulate the movement of nparticles particles.
 */
@@ -217,10 +155,27 @@ int main(int argc, char**argv)
 
   /* Start simulation */
   double t = 0.0, dt = 0.01;
-  int k;
-  int terminated = -1;
+  int i, j;
   int nums_per_proc = nparticles/(size-1);
-  
+  int root_task = nparticles - nums_per_proc*(size-1);
+  particle_t* par_per_proc;
+
+  /* Pre-define the displacements, counts for gathering particles[rank] from slave procs */  
+  int *displs = NULL;
+  int *counts = NULL;
+
+  if (rank == 0){
+    displs = malloc(size * sizeof(int));
+    counts = malloc(size * sizeof(int));
+    displs[0] = 0;
+    counts[0] = root_task;
+
+    for (i = 1; i < size; i++) {
+      displs[i] = root_task + nums_per_proc * (i-1);
+      counts[i] = nums_per_proc;
+    }
+  }
+
   while (t < T_FINAL && nparticles > 0) {
     /* Update time. */
     t += dt;
@@ -229,27 +184,50 @@ int main(int argc, char**argv)
     /* 1. Computing task */
     if (rank != 0) {
       // normal tasks for nums_per_proc in nparticles
+      par_per_proc = malloc(sizeof(particle_t)*nums_per_proc);
+      for (i = root_task + nums_per_proc*(rank-1); i < root_task + nums_per_proc * rank; i++){
+        for(j = 0; j < nparticles; j++) {
+          particle_t*p = &particles[j];
+          compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
+          par_per_proc[i-root_task-nums_per_proc*(rank-1)] = particles[i];
+        }
+      }
     } else {
-      // compute rest 
+      nums_per_proc = root_task;
+      par_per_proc = malloc(sizeof(particle_t)*nums_per_proc);
+      for (i = 0; i < nums_per_proc; i++){
+        for(j = 0; j < nparticles; j++) {
+          particle_t*p = &particles[j];
+          compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
+          par_per_proc[i] = particles[i];
+        }
+      }
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
         
-    // collect results
-    MPI_Gatherv();
+    /* collect results */
+    // can change to gatherv only in root (since position information still need to be updated at next step)
+    // MPI_Allgatherv(par_per_proc, counts[rank], MPI_DOUBLE,
+    //             particles, counts, displs, MPI_DOUBLE,
+    //             MPI_COMM_WORLD);
 
-    // move 
+    MPI_Gatherv(par_per_proc, nums_per_proc, MPI_DOUBLE,
+                particles, counts, displs, MPI_DOUBLE,
+                0, MPI_COMM_WORLD);
+
+    /* 2. Move task (only in root) */ 
     if(rank==0){
       for(i=0; i<nparticles; i++) {
-        move_particle(&particles[i], step);
+        move_particle(&particles[i], dt);
       }
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
     // send new positions, 
-    MPI_Bcast(particle);
-    MPI_Bcast(max_speed);
-    MPI_Bcast(max_acc);
+    MPI_Bcast(particles, nparticles, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&max_speed, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&max_acc, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
  
     /* Adjust dt based on maximum speed and acceleration--this
        simple rule tries to insure that no velocity will change
@@ -267,7 +245,7 @@ int main(int argc, char**argv)
 
   gettimeofday(&t2, NULL);
 
-  double duration = (t2.tv_sec -t1.tv_sec)+((t2.tv_usec-t1.tv_usec)/1e6);
+  double duration = (t2.tv_sec-t1.tv_sec)+((t2.tv_usec-t1.tv_usec)/1e6);
 
 #ifdef DUMP_RESULT
   FILE* f_out = fopen("particles.log", "w");
