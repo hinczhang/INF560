@@ -37,10 +37,6 @@ int compute_tag = 99;
 int move_tag = 98; 
 double dt = 0.01;
 
-void slave_compute_force(int index);
-void master(int size);
-void slave(int rank);
-
 void init() {
   /* Nothing to do */
 }
@@ -107,6 +103,7 @@ void print_all_particles(FILE* f) {
     fprintf(f, "particle={pos=(%f,%f), vel=(%f,%f)}\n", p->x_pos, p->y_pos, p->x_vel, p->y_vel);
   }
 }
+
 /*
   Simulate the movement of nparticles particles.
 */
@@ -131,14 +128,6 @@ int main(int argc, char**argv)
    */
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
-  //MPI_Status status;
-
-  /* MPI Solution
-   * 1. Replicates all particles (computation relies on every other entities)
-   * 2. Divide the computing and move tasks into different procs：master to dynamically allocate respective index of computing
-   *    2.1 Compute force (all by itself), barrier, sync (allgather) all forces
-   *    2.2 Move, barrier, sync all positions before next loop  
-   */
 
   /* Allocate global shared arrays for the particles data set. */
   particles = malloc(sizeof(particle_t)*nparticles);
@@ -160,6 +149,14 @@ int main(int argc, char**argv)
   int root_task = nparticles - nums_per_proc*(size-1);
   particle_t* par_per_proc;
 
+  /* Create MPI type for collective communication */
+  MPI_Datatype particle_mpi_t;
+  int blocklens[1] = {7};
+  MPI_Aint offsets[1] = {0};
+  MPI_Datatype types[1] =  {MPI_DOUBLE};
+  MPI_Type_create_struct(1, blocklens, offsets, types, &particle_mpi_t);
+  MPI_Type_commit(&particle_mpi_t);
+
   /* Pre-define the displacements, counts for gathering particles[rank] from slave procs */  
   int *displs = NULL;
   int *counts = NULL;
@@ -176,6 +173,7 @@ int main(int argc, char**argv)
     }
   }
 
+  int step = 0;
   while (t < T_FINAL && nparticles > 0) {
     /* Update time. */
     t += dt;
@@ -184,7 +182,10 @@ int main(int argc, char**argv)
     /* 1. Computing task */
     if (rank != 0) {
       // normal tasks for nums_per_proc in nparticles
-      par_per_proc = malloc(sizeof(particle_t)*nums_per_proc);
+      if(step==0) {
+        par_per_proc = malloc(sizeof(particle_t)*nums_per_proc);
+      }
+      //par_per_proc = malloc(sizeof(particle_t)*nums_per_proc);
       for (i = root_task + nums_per_proc*(rank-1); i < root_task + nums_per_proc * rank; i++){
         for(j = 0; j < nparticles; j++) {
           particle_t*p = &particles[j];
@@ -194,7 +195,9 @@ int main(int argc, char**argv)
       }
     } else {
       nums_per_proc = root_task;
-      par_per_proc = malloc(sizeof(particle_t)*nums_per_proc);
+      if(step==0) {
+        par_per_proc = malloc(sizeof(particle_t)*nums_per_proc);
+      }
       for (i = 0; i < nums_per_proc; i++){
         for(j = 0; j < nparticles; j++) {
           particle_t*p = &particles[j];
@@ -205,36 +208,35 @@ int main(int argc, char**argv)
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
-        
-    /* collect results */
-    // can change to gatherv only in root (since position information still need to be updated at next step)
-    // MPI_Allgatherv(par_per_proc, counts[rank], MPI_DOUBLE,
-    //             particles, counts, displs, MPI_DOUBLE,
-    //             MPI_COMM_WORLD);
 
-    MPI_Gatherv(par_per_proc, nums_per_proc, MPI_DOUBLE,
-                particles, counts, displs, MPI_DOUBLE,
+    MPI_Gatherv(par_per_proc, nums_per_proc, particle_mpi_t,
+                particles, counts, displs, particle_mpi_t,
                 0, MPI_COMM_WORLD);
+
+    MPI_Barrier(MPI_COMM_WORLD);  
 
     /* 2. Move task (only in root) */ 
     if(rank==0){
       for(i=0; i<nparticles; i++) {
-        move_particle(&particles[i], dt);
+        move_particle(&particles[i], dt);   
       }
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
-    // send new positions, 
-    MPI_Bcast(particles, nparticles, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    // send new positions, forces, acc
+    MPI_Bcast(particles, nparticles, particle_mpi_t, 0, MPI_COMM_WORLD);
+
     MPI_Bcast(&max_speed, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(&max_acc, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
- 
+
+    // MPI_Barrier(MPI_COMM_WORLD);
+
     /* Adjust dt based on maximum speed and acceleration--this
        simple rule tries to insure that no velocity will change
        by more than 10% */
 
     dt = 0.1*max_speed/max_acc;
-    // MPI_Bcast(&dt, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD); // wrong: Bcast must be called by all procs
+    step++;
 
 #if DISPLAY
     clear_display();
@@ -242,6 +244,9 @@ int main(int argc, char**argv)
     flush_display();
 #endif
   } 
+
+  free(par_per_proc);
+  free(particles);
 
   gettimeofday(&t2, NULL);
 
@@ -271,7 +276,6 @@ int main(int argc, char**argv)
   /* Close the X window used to display the particles */
   XCloseDisplay(theDisplay);
 #endif
-
   MPI_Finalize();
   return 0;
 }
