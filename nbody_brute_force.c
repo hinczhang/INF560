@@ -33,8 +33,10 @@ double max_speed = 0;
 int init_signal = 1; // signaling slaves to initialize first round computing 
 
 /* MPI_Tag for two types of jobs  */
-int compute_tag = 99;
-int move_tag = 98; 
+// int compute_tag = 99;
+// int move_tag = 98; 
+int ACC_TAG = 97;
+int SPEED_TAG = 96;
 double dt = 0.01;
 
 void init() {
@@ -59,6 +61,8 @@ void compute_force(particle_t*p, double x_pos, double y_pos, double mass) {
 
   /* Use the 2-dimensional gravity rule: F = d * (GMm/d^2) */
   grav_base = GRAV_CONSTANT*(p->mass)*(mass)/dist_sq;
+  // FILE* fp = fopen("grav.log", "a");
+  // fprintf(fp, "grav_base is %f\n", grav_base);
 
   p->x_force += grav_base*x_sep;
   p->y_force += grav_base*y_sep;
@@ -128,6 +132,7 @@ int main(int argc, char**argv)
    */
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
+  MPI_Status status;
 
   /* Allocate global shared arrays for the particles data set. */
   particles = malloc(sizeof(particle_t)*nparticles);
@@ -139,8 +144,9 @@ int main(int argc, char**argv)
   simple_init (100,100,DISPLAY_SIZE, DISPLAY_SIZE);
 #endif
 
-  struct timeval t1, t2;
-  gettimeofday(&t1, NULL);
+  // struct timeval t1, t2;
+  // gettimeofday(&t1, NULL);
+  double t1, t2, duration;
 
   /* Start simulation */
   double t = 0.0, dt = 0.01;
@@ -157,7 +163,7 @@ int main(int argc, char**argv)
   MPI_Type_create_struct(1, blocklens, offsets, types, &particle_mpi_t);
   MPI_Type_commit(&particle_mpi_t);
 
-  /* Pre-define the displacements, counts for gathering particles[rank] from slave procs */  
+  /* Pre-define the displacements, counts for gathering particles[..] from slave procs */  
   int *displs = NULL;
   int *counts = NULL;
 
@@ -184,30 +190,74 @@ int main(int argc, char**argv)
       // normal tasks for nums_per_proc in nparticles
       if(step==0) {
         par_per_proc = malloc(sizeof(particle_t)*nums_per_proc);
+        if (par_per_proc == NULL) {
+          fprintf(stderr, "Fatal: failed to allocate bytes.\n");
+          abort();
+        }
       }
-      //par_per_proc = malloc(sizeof(particle_t)*nums_per_proc);
+
       for (i = root_task + nums_per_proc*(rank-1); i < root_task + nums_per_proc * rank; i++){
         for(j = 0; j < nparticles; j++) {
           particle_t*p = &particles[j];
           compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
-          par_per_proc[i-root_task-nums_per_proc*(rank-1)] = particles[i];
         }
+        par_per_proc[i-root_task-nums_per_proc*(rank-1)] = particles[i];
       }
+
+      MPI_Send(&max_acc, 1, MPI_DOUBLE, 0, ACC_TAG, MPI_COMM_WORLD);
+      MPI_Send(&max_speed, 1, MPI_DOUBLE, 0, SPEED_TAG, MPI_COMM_WORLD);
+
+      /* Check the max speed and max acc in different procs */
+      // if (step == 1) {
+      //   printf("max speed and max acc is %f, %f\n", max_speed, max_acc);
+      // }
+      // for (i=0; i<nums_per_proc; i++){
+      //   if(step == 0) 
+      //     printf("Rank-%d particles[%d] is %f, %f\n", rank, i, par_per_proc[i].x_force, par_per_proc[i].y_force);
+      // }
     } else {
       nums_per_proc = root_task;
+
+      /* Alloc particles arrays for current proc */
       if(step==0) {
+        t1 = MPI_Wtime();
+        printf("t1 = %f\n", t1);
         par_per_proc = malloc(sizeof(particle_t)*nums_per_proc);
+        if (par_per_proc == NULL) {
+          fprintf(stderr, "Fatal: failed to allocate bytes.\n");
+          abort();
+        }
       }
+
+      /* Executing computing task of root */
       for (i = 0; i < nums_per_proc; i++){
         for(j = 0; j < nparticles; j++) {
           particle_t*p = &particles[j];
           compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
-          par_per_proc[i] = particles[i];
         }
+        par_per_proc[i] = particles[i]; 
+      }
+
+      /* Recv the max_acc and max_speed from other procs */
+      for (i = 1; i < size; i++) {
+        double max_acc_recv, max_speed_recv;
+        MPI_Recv(&max_acc_recv, 1, MPI_DOUBLE, i, ACC_TAG, MPI_COMM_WORLD, &status);
+        MPI_Recv(&max_speed_recv, 1, MPI_DOUBLE, i, SPEED_TAG, MPI_COMM_WORLD, &status);
+
+        if (max_acc_recv > max_acc) 
+          max_acc = max_acc_recv;
+        if (max_speed_recv > max_speed)
+          max_speed = max_speed_recv;
       }
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
+        
+    /* collect results */
+    // can change to gatherv only in root (since position information still need to be updated at next step)
+    // MPI_Allgatherv(par_per_proc, counts[rank], MPI_DOUBLE,
+    //             particles, counts, displs, MPI_DOUBLE,
+    //             MPI_COMM_WORLD);
 
     MPI_Gatherv(par_per_proc, nums_per_proc, particle_mpi_t,
                 particles, counts, displs, particle_mpi_t,
@@ -215,10 +265,20 @@ int main(int argc, char**argv)
 
     MPI_Barrier(MPI_COMM_WORLD);  
 
+    // if (rank==0 && step==1) 
+    //   printf("MIDDLE MAX_ACC !!!!!!!!!!!! %f\n", max_acc);   
+
+    int test_num = 1;
+
     /* 2. Move task (only in root) */ 
-    if(rank==0){
-      for(i=0; i<nparticles; i++) {
-        move_particle(&particles[i], dt);   
+    if(rank == 0){
+      for(i = 0; i < nparticles; i++) {
+        move_particle(&particles[i], dt);
+
+        if (step==0) { 
+          printf("particles[%d] POSITION is %f, %f\n", i, particles[i].x_pos, particles[i].y_pos); 
+          printf("particles[%d] FORCE is %f, %f\n", i, particles[i].x_force, particles[i].y_force);
+        }
       }
     }
     MPI_Barrier(MPI_COMM_WORLD);
@@ -229,12 +289,13 @@ int main(int argc, char**argv)
     MPI_Bcast(&max_speed, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(&max_acc, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    // MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
 
     /* Adjust dt based on maximum speed and acceleration--this
        simple rule tries to insure that no velocity will change
        by more than 10% */
 
+    // printf("Max speed is %f, Max acc is %f\n", max_speed, max_acc);
     dt = 0.1*max_speed/max_acc;
     step++;
 
@@ -248,9 +309,15 @@ int main(int argc, char**argv)
   free(par_per_proc);
   free(particles);
 
-  gettimeofday(&t2, NULL);
-
-  double duration = (t2.tv_sec-t1.tv_sec)+((t2.tv_usec-t1.tv_usec)/1e6);
+  // gettimeofday(&t2, NULL);
+  if(rank==0){
+    t2 = MPI_Wtime();
+    printf("t2 = %f\n", t2);
+    duration = t2 - t1;
+  }
+  t2 = MPI_Wtime();
+  duration = t2 - t1;
+  //double duration = (t2.tv_sec-t1.tv_sec)+((t2.tv_usec-t1.tv_usec)/1e6);
 
 #ifdef DUMP_RESULT
   FILE* f_out = fopen("particles.log", "w");
@@ -259,11 +326,13 @@ int main(int argc, char**argv)
   fclose(f_out);
 #endif
 
-  printf("-----------------------------\n");
-  printf("nparticles: %d\n", nparticles);
-  printf("T_FINAL: %f\n", T_FINAL);
-  printf("-----------------------------\n");
-  printf("Simulation took %lf s to complete\n", duration);
+  if (rank==0) {
+    printf("-----------------------------\n");
+    printf("nparticles: %d\n", nparticles);
+    printf("T_FINAL: %f\n", T_FINAL);
+    printf("-----------------------------\n");
+    printf("Simulation took %lf s to complete\n", duration);
+  }
 
 #ifdef DISPLAY
   clear_display();
