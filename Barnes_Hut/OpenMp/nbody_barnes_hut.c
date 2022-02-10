@@ -19,6 +19,7 @@
 #include "ui.h"
 #include "nbody.h"
 #include "nbody_tools.h"
+#include "nbody_alloc.h"
 
 FILE* f_out=NULL;
 
@@ -110,8 +111,10 @@ void compute_force_on_particle(node_t* n, particle_t *p) {
 	node's children.
       */
       int i;
+      #pragma omp parallel for schedule(dynamic)
       for(i=0; i<4; i++) {
-	compute_force_on_particle(&n->children[i], p);
+        //#pragma omp critical
+	      compute_force_on_particle(&n->children[i], p);
       }
     }
 #endif
@@ -129,6 +132,7 @@ void compute_force_in_node(node_t *n) {
   }
   if(n->children) {
     int i;
+    #pragma omp parallel for
     for(i=0; i<4; i++) {
       compute_force_in_node(&n->children[i]);
     }
@@ -233,9 +237,16 @@ void run_simulation() {
 /* create a quad-tree from an array of particles */
 void insert_all_particles(int nparticles, particle_t*particles, node_t*root) {
   int i;
-  for(i=0; i<nparticles; i++) {
-    insert_particle(&particles[i], root);
-  }
+  
+  //omp_init_lock(&lock);
+  //#pragma omp parallel
+  //{
+    //#pragma omp parallel for schedule(dynamic)
+    for(i=0; i<nparticles; i++) {
+      insert_particle(&particles[i], root);
+    }
+  //}
+  //omp_destroy_lock(&lock);
 }
 
 /*
@@ -249,6 +260,7 @@ int main(int argc, char**argv)
   if(argc == 3) {
     T_FINAL = atof(argv[2]);
   }
+  
 
   init();
 

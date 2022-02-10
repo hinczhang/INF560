@@ -161,7 +161,10 @@ void insert_particle(particle_t* particle, node_t*node) {
       /* there's no children yet */
       /* create 4 children and move the already-inserted particle to one of them */
       //assert(node->x_min != node->x_max);
+    //#pragma omp critical  
+    //{  
       node->children = alloc_node();
+
       double x_min = node->x_min;
       double x_max = node->x_max;
       double x_center = x_min+(x_max-x_min)/2;
@@ -170,11 +173,12 @@ void insert_particle(particle_t* particle, node_t*node) {
       double y_max = node->y_max;
       double y_center = y_min+(y_max-y_min)/2;
 
+
       init_node(&node->children[0], node, x_min, x_center, y_min, y_center);
       init_node(&node->children[1], node, x_center, x_max, y_min, y_center);
       init_node(&node->children[2], node, x_min, x_center, y_center, y_max);
       init_node(&node->children[3], node, x_center, x_max, y_center, y_max);
-
+    //}
       /* move the already-inserted particle to one of the children */
       particle_t*ptr = node->particle;
       //assert(ptr->node == node);
@@ -219,7 +223,9 @@ void all_init_particles(int num_particles, particle_t *particles)
 {
   int    i;
   double total_particle = num_particles;
-
+  #pragma omp parallel
+  {
+    #pragma omp parallel for schedule(dynamic)
   for (i = 0; i < num_particles; i++) {
     particle_t *particle = &particles[i];
 #if 0
@@ -237,6 +243,7 @@ void all_init_particles(int num_particles, particle_t *particles)
     particle->node = NULL;
 
     //insert_particle(particle, root);
+  }
   }
 }
 

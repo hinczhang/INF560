@@ -1,5 +1,7 @@
 #ifndef NBODY_ALLOC_H
 #define NBODY_ALLOC_H
+#include<omp.h>
+static omp_lock_t lock;
 
 typedef struct Bloc {
   struct Bloc* suivant;

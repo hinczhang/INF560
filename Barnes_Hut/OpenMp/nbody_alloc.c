@@ -34,7 +34,7 @@ void mem_init(struct memory_t *mem, size_t block_size, int nb_blocks)
     block_ptr += block_size;
     p->suivant = (Bloc*) block_ptr;
   }
-
+  
   size_t alloc_size = nb_blocks*block_size;
   char* end_addr = (char*) mem->debutListe;
   end_addr += alloc_size;
