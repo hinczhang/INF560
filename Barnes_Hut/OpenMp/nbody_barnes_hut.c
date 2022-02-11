@@ -21,6 +21,8 @@
 #include "nbody_tools.h"
 #include "nbody_alloc.h"
 
+#define LEVEL_SUBTRACT 2
+
 FILE* f_out=NULL;
 
 int nparticles=10;      /* number of particles */
@@ -111,13 +113,30 @@ void compute_force_on_particle(node_t* n, particle_t *p) {
 	node's children.
       */
       int i;
-      #pragma omp parallel for schedule(dynamic)
+      
       for(i=0; i<4; i++) {
-        //#pragma omp critical
 	      compute_force_on_particle(&n->children[i], p);
       }
     }
 #endif
+  }
+}
+
+void serial_compute_force_in_node(node_t *n) {
+  if(!n) return;
+
+  if(n->particle) {
+    particle_t*p = n->particle;
+    p->x_force = 0;
+    p->y_force = 0;
+    compute_force_on_particle(root, p);
+  }
+  if(n->children) {
+    int i;
+    for(i=0; i<4; i++) {
+      serial_compute_force_in_node(&n->children[i]);
+    }
+    
   }
 }
 
@@ -132,10 +151,20 @@ void compute_force_in_node(node_t *n) {
   }
   if(n->children) {
     int i;
-    #pragma omp parallel for
-    for(i=0; i<4; i++) {
-      compute_force_in_node(&n->children[i]);
+    if(n->depth<=root->depth-LEVEL_SUBTRACT){
+      for(i=0; i<4; i++) {
+          serial_compute_force_in_node(&n->children[i]);
+       }
+       return;
     }
+    //printf("Node depth: %d, Root Depth: %d\n", n->depth, root->depth);
+  
+      for(i=0; i<4; i++) {
+        #pragma omp task
+        //printf("Thread: %d, In depth %d\n", omp_get_thread_num(), n->depth);
+        compute_force_in_node(&n->children[i]);
+      }
+    
   }
 }
 
@@ -196,7 +225,11 @@ void move_particles_in_node(node_t*n, double step, node_t *new_root) {
 void all_move_particles(double step)
 {
   /* First calculate force for particles. */
-  compute_force_in_node(root);
+  #pragma omp parallel
+  {
+     #pragma omp single
+      compute_force_in_node(root);
+  }
 
   node_t* new_root = malloc(sizeof(node_t));
   init_node(new_root, NULL, XMIN, XMAX, YMIN, YMAX);
@@ -236,17 +269,11 @@ void run_simulation() {
 
 /* create a quad-tree from an array of particles */
 void insert_all_particles(int nparticles, particle_t*particles, node_t*root) {
-  int i;
+  int i=0;
   
-  //omp_init_lock(&lock);
-  //#pragma omp parallel
-  //{
-    //#pragma omp parallel for schedule(dynamic)
-    for(i=0; i<nparticles; i++) {
-      insert_particle(&particles[i], root);
-    }
-  //}
-  //omp_destroy_lock(&lock);
+  for(i=0; i<nparticles; i++) {
+    insert_particle(&particles[i], root);
+  }
 }
 
 /*

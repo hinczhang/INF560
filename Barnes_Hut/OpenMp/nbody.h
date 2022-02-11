@@ -3,7 +3,6 @@
 
 struct node;
 struct particle;
-
 /*
   This structure holds information for a single particle,
   including position, velocity, and mass.

@@ -161,8 +161,7 @@ void insert_particle(particle_t* particle, node_t*node) {
       /* there's no children yet */
       /* create 4 children and move the already-inserted particle to one of them */
       //assert(node->x_min != node->x_max);
-    //#pragma omp critical  
-    //{  
+      omp_set_lock(&lock);
       node->children = alloc_node();
 
       double x_min = node->x_min;
@@ -173,12 +172,11 @@ void insert_particle(particle_t* particle, node_t*node) {
       double y_max = node->y_max;
       double y_center = y_min+(y_max-y_min)/2;
 
-
       init_node(&node->children[0], node, x_min, x_center, y_min, y_center);
       init_node(&node->children[1], node, x_center, x_max, y_min, y_center);
       init_node(&node->children[2], node, x_min, x_center, y_center, y_max);
       init_node(&node->children[3], node, x_center, x_max, y_center, y_max);
-    //}
+      omp_unset_lock(&lock);
       /* move the already-inserted particle to one of the children */
       particle_t*ptr = node->particle;
       //assert(ptr->node == node);
