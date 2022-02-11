@@ -38,6 +38,8 @@ int init_signal = 1; // signaling slaves to initialize first round computing
 int ACC_TAG = 97;
 int SPEED_TAG = 96;
 double dt = 0.01;
+//double x_sep, y_sep, dist_sq, grav_base; // for debug, should be put in compute force
+int step = 0;
 
 void init() {
   /* Nothing to do */
@@ -61,11 +63,10 @@ void compute_force(particle_t*p, double x_pos, double y_pos, double mass) {
 
   /* Use the 2-dimensional gravity rule: F = d * (GMm/d^2) */
   grav_base = GRAV_CONSTANT*(p->mass)*(mass)/dist_sq;
-  // FILE* fp = fopen("grav.log", "a");
-  // fprintf(fp, "grav_base is %f\n", grav_base);
 
   p->x_force += grav_base*x_sep;
   p->y_force += grav_base*y_sep;
+
 }
 
 /* compute the new position/velocity */
@@ -88,7 +89,6 @@ void move_particle(particle_t*p, double step) {
   max_acc = MAX(max_acc, cur_acc);
   max_speed = MAX(max_speed, cur_speed);
 }
-
 
 /* display all the particles */
 void draw_all_particles() {
@@ -179,7 +179,7 @@ int main(int argc, char**argv)
     }
   }
 
-  int step = 0;
+  // int step = 0;
   while (t < T_FINAL && nparticles > 0) {
     /* Update time. */
     t += dt;
@@ -197,6 +197,8 @@ int main(int argc, char**argv)
       }
 
       for (i = root_task + nums_per_proc*(rank-1); i < root_task + nums_per_proc * rank; i++){
+        particles[i].x_force = 0;
+        particles[i].y_force = 0;
         for(j = 0; j < nparticles; j++) {
           particle_t*p = &particles[j];
           compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
@@ -207,15 +209,8 @@ int main(int argc, char**argv)
       MPI_Send(&max_acc, 1, MPI_DOUBLE, 0, ACC_TAG, MPI_COMM_WORLD);
       MPI_Send(&max_speed, 1, MPI_DOUBLE, 0, SPEED_TAG, MPI_COMM_WORLD);
 
-      /* Check the max speed and max acc in different procs */
-      // if (step == 1) {
-      //   printf("max speed and max acc is %f, %f\n", max_speed, max_acc);
-      // }
-      // for (i=0; i<nums_per_proc; i++){
-      //   if(step == 0) 
-      //     printf("Rank-%d particles[%d] is %f, %f\n", rank, i, par_per_proc[i].x_force, par_per_proc[i].y_force);
-      // }
     } else {
+      
       nums_per_proc = root_task;
 
       /* Alloc particles arrays for current proc */
@@ -231,6 +226,8 @@ int main(int argc, char**argv)
 
       /* Executing computing task of root */
       for (i = 0; i < nums_per_proc; i++){
+        particles[i].x_force = 0;
+        particles[i].y_force = 0;
         for(j = 0; j < nparticles; j++) {
           particle_t*p = &particles[j];
           compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
@@ -252,35 +249,18 @@ int main(int argc, char**argv)
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
-        
-    /* collect results */
-    // can change to gatherv only in root (since position information still need to be updated at next step)
-    // MPI_Allgatherv(par_per_proc, counts[rank], MPI_DOUBLE,
-    //             particles, counts, displs, MPI_DOUBLE,
-    //             MPI_COMM_WORLD);
 
     MPI_Gatherv(par_per_proc, nums_per_proc, particle_mpi_t,
                 particles, counts, displs, particle_mpi_t,
                 0, MPI_COMM_WORLD);
 
-    MPI_Barrier(MPI_COMM_WORLD);  
-
-    // if (rank==0 && step==1) 
-    //   printf("MIDDLE MAX_ACC !!!!!!!!!!!! %f\n", max_acc);   
-
-    int test_num = 1;
-
     /* 2. Move task (only in root) */ 
     if(rank == 0){
       for(i = 0; i < nparticles; i++) {
         move_particle(&particles[i], dt);
-
-        if (step==0) { 
-          printf("particles[%d] POSITION is %f, %f\n", i, particles[i].x_pos, particles[i].y_pos); 
-          printf("particles[%d] FORCE is %f, %f\n", i, particles[i].x_force, particles[i].y_force);
-        }
       }
     }
+
     MPI_Barrier(MPI_COMM_WORLD);
 
     // send new positions, forces, acc
@@ -306,11 +286,8 @@ int main(int argc, char**argv)
 #endif
   } 
 
-  free(par_per_proc);
-  free(particles);
-
   // gettimeofday(&t2, NULL);
-  if(rank==0){
+  if (rank == 0) {
     t2 = MPI_Wtime();
     printf("t2 = %f\n", t2);
     duration = t2 - t1;
@@ -325,6 +302,9 @@ int main(int argc, char**argv)
   print_all_particles(f_out);
   fclose(f_out);
 #endif
+
+  free(par_per_proc);
+  free(particles);
 
   if (rank==0) {
     printf("-----------------------------\n");
