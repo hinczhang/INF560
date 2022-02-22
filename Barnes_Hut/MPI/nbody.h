@@ -1,9 +1,11 @@
 #ifndef NBODY_H
 #define NBODY_H
-
+#include<openmpi/mpi.h>
 struct node;
 struct particle;
 
+int process_num;
+int rank;
 /*
   This structure holds information for a single particle,
   including position, velocity, and mass.
@@ -16,6 +18,16 @@ typedef struct particle{
   struct node* node; 		/* only used for the barnes-hut algorithm */
 } particle_t;
 
+typedef struct particle_vice{
+  double x_pos;
+  double y_pos;		/* position of the particle */
+  double x_vel;
+  double y_vel;		/* velocity of the particle */
+  double x_force;
+  double y_force;	/* gravitational forces that apply against this particle */
+  double mass;			/* mass of the particle */
+  //struct node* node; 		/* only used for the barnes-hut algorithm */
+} particle_vice_t;
 
 /* Only used in the barnes-Hut algorithm */
 typedef struct node {
@@ -30,7 +42,6 @@ typedef struct node {
   double x_min, x_max;
   double y_min, y_max;
 } node_t;
-
 
 extern int nparticles;		/* number of particles to simulate */
 

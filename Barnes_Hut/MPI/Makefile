@@ -1,4 +1,4 @@
-CC	= gcc
+CC	= mpicc
 CFLAGS	= -O0 -g -Wall
 LDFLAGS = -g -lm -lpthread -lX11 -fopenmp
 VERBOSE	=

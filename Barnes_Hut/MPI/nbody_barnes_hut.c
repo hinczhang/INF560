@@ -10,6 +10,7 @@
 #include <sys/time.h>
 #include <assert.h>
 #include <unistd.h>
+#include<stddef.h>
 
 #ifdef DISPLAY
 #include <X11/Xlib.h>
@@ -111,7 +112,7 @@ void compute_force_on_particle(node_t* n, particle_t *p) {
       */
       int i;
       for(i=0; i<4; i++) {
-	compute_force_on_particle(&n->children[i], p);
+	      compute_force_on_particle(&n->children[i], p);
       }
     }
 #endif
@@ -192,7 +193,103 @@ void move_particles_in_node(node_t*n, double step, node_t *new_root) {
 void all_move_particles(double step)
 {
   /* First calculate force for particles. */
-  compute_force_in_node(root);
+  int process_sequence_num = (int)(nparticles/process_num)+1;
+  /*MPI_Datatype ParticleType;
+  MPI_Datatype types[7]={MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE};
+  int block_length[7]={1,1,1,1,1,1,1};
+  MPI_Aint displacement[7];*/
+  
+  // test array
+  double *vice_mass = malloc(sizeof(double)*process_sequence_num);
+  double *vice_x_pos= malloc(sizeof(double)*process_sequence_num);
+  double *vice_y_pos= malloc(sizeof(double)*process_sequence_num);
+  double *vice_x_vel= malloc(sizeof(double)*process_sequence_num);
+  double *vice_y_vel= malloc(sizeof(double)*process_sequence_num);
+  double *vice_x_force= malloc(sizeof(double)*process_sequence_num);
+  double *vice_y_force= malloc(sizeof(double)*process_sequence_num);
+
+  double *mass = malloc(sizeof(double)*process_sequence_num*process_num);
+  double *x_pos = malloc(sizeof(double)*process_sequence_num*process_num);
+  double *y_pos = malloc(sizeof(double)*process_sequence_num*process_num);
+  double *x_vel = malloc(sizeof(double)*process_sequence_num*process_num);
+  double *y_vel = malloc(sizeof(double)*process_sequence_num*process_num);
+  double *x_force = malloc(sizeof(double)*process_sequence_num*process_num);
+  double *y_force = malloc(sizeof(double)*process_sequence_num*process_num);
+  
+  for(int i = rank*process_sequence_num; i < nparticles&&i < (rank+1)*(process_sequence_num); i++){
+    compute_force_in_node(particles[i].node);
+    vice_mass[i-rank*process_sequence_num]=particles[i].mass;
+    vice_x_force[i-rank*process_sequence_num]=particles[i].x_force;
+    vice_x_pos[i-rank*process_sequence_num]=particles[i].x_pos;
+    vice_x_vel[i-rank*process_sequence_num]=particles[i].x_vel;
+    vice_y_force[i-rank*process_sequence_num]=particles[i].y_force;
+    vice_y_pos[i-rank*process_sequence_num]=particles[i].y_pos;
+    vice_y_vel[i-rank*process_sequence_num]=particles[i].y_vel;
+  }
+  /*for(int i=0;i<process_sequence_num;i++){
+    printf("x_force: %lf of rank %d for process length: %d\n",vice_x_force[i], rank, process_sequence_num);
+  }*/
+  /*for(int i=0;i<nparticles;i++){
+    printf("test: %lf in rank %d\n",particles[i].x_force, rank);
+  }*/
+  /*
+  displacement[0]=offsetof(particle_vice_t,x_pos);
+  displacement[1]=offsetof(particle_vice_t,y_pos);
+  displacement[2]=offsetof(particle_vice_t,x_vel);
+  displacement[3]=offsetof(particle_vice_t,y_vel);
+  displacement[4]=offsetof(particle_vice_t,x_force);
+  displacement[5]=offsetof(particle_vice_t,y_force);
+  displacement[6]=offsetof(particle_vice_t,mass);
+
+  
+  MPI_Type_create_struct(7,block_length,displacement,types,&ParticleType);
+  MPI_Type_commit(&ParticleType);
+  */
+  
+  /*
+  particle_t* accept_particles = malloc(sizeof(particle_vice_t)*process_sequence_num*process_num);
+  if(rank==0){
+    printf("Length: %d, sublength: %d, sum of the process: %d\n",process_sequence_num*process_num,process_sequence_num,process_num);
+  }
+  */
+  //MPI_Allgather(vice_particles,process_sequence_num,ParticleType,accept_particles,process_sequence_num,ParticleType,0,MPI_COMM_WORLD);
+  
+  MPI_Allgather(vice_mass,process_sequence_num,MPI_DOUBLE,mass,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  MPI_Allgather(vice_x_pos,process_sequence_num,MPI_DOUBLE,x_pos,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  MPI_Allgather(vice_y_pos,process_sequence_num,MPI_DOUBLE,y_pos,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  MPI_Allgather(vice_x_vel,process_sequence_num,MPI_DOUBLE,x_vel,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  MPI_Allgather(vice_y_vel,process_sequence_num,MPI_DOUBLE,y_vel,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  MPI_Allgather(vice_x_force,process_sequence_num,MPI_DOUBLE,x_force,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  MPI_Allgather(vice_y_force,process_sequence_num,MPI_DOUBLE,y_force,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  //printf("x_force: %lf in rank %d\n",x_force[0],rank);
+  for(int i = 0; i < nparticles; i++){
+    particles[i].mass=mass[i];
+    particles[i].x_force=x_force[i];
+    particles[i].x_pos=x_pos[i];
+    particles[i].x_vel=x_vel[i];
+    particles[i].y_force=y_force[i];
+    particles[i].y_pos=y_pos[i];
+    particles[i].y_vel=y_vel[i];
+  }
+  for(int i = 0; i < nparticles; i++){
+    printf("rank: %d, x_force: %lf\n", rank, particles[i].x_force);
+  }
+  free(vice_mass);
+  free(vice_x_force);
+  free(vice_x_pos);
+  free(vice_x_vel);
+  free(vice_y_force);
+  free(vice_y_pos);
+  free(vice_y_vel);
+  free(mass);
+  free(x_force);
+  free(x_pos);
+  free(x_vel);
+  free(y_force);
+  free(y_pos);
+  free(y_vel);
+  
+  
 
   node_t* new_root = malloc(sizeof(node_t));
   init_node(new_root, NULL, XMIN, XMAX, YMIN, YMAX);
@@ -219,13 +316,16 @@ void run_simulation() {
        by more than 10% */
 
     dt = 0.1*max_speed/max_acc;
-
+    
     /* Plot the movement of the particle */
 #if DISPLAY
-    node_t *n = root;
-    clear_display();
-    draw_node(n);
-    flush_display();
+    //MPI_Barrier(MPI_COMM_WORLD);
+    if(rank==0){
+      node_t *n = root;
+      clear_display();
+      draw_node(n);
+      flush_display();
+    }
 #endif
   }
 }
@@ -243,61 +343,74 @@ void insert_all_particles(int nparticles, particle_t*particles, node_t*root) {
 */
 int main(int argc, char**argv)
 {
+  
+  MPI_Init(&argc, &argv);
+  MPI_Comm_size(MPI_COMM_WORLD, &process_num);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  if(process_num<2){
+    printf("Require more processes!\n");
+    return 0;
+  }
+
   if(argc >= 2) {
     nparticles = atoi(argv[1]);
   }
   if(argc == 3) {
     T_FINAL = atof(argv[2]);
   }
-
+  
   init();
-
   /* Allocate global shared arrays for the particles data set. */
   particles = malloc(sizeof(particle_t)*nparticles);
   all_init_particles(nparticles, particles);
+  
+  //MPI_Scatter(particles,process_sequence_num,);
+  
   insert_all_particles(nparticles, particles, root);
-
+  //printf("particle location: %lf in rank %d\n", particles[0].x_pos,rank);
   /* Initialize thread data structures */
 #ifdef DISPLAY
-  /* Open an X window to display the particles */
-  simple_init (100,100,DISPLAY_SIZE, DISPLAY_SIZE);
+    /* Open an X window to display the particles */
+    simple_init (100,100,DISPLAY_SIZE, DISPLAY_SIZE);
 #endif
-
   struct timeval t1, t2;
-  gettimeofday(&t1, NULL);
-
+  if(rank==0){
+    gettimeofday(&t1, NULL);
+  }
   /* Main thread starts simulation ... */
   run_simulation();
-
-  gettimeofday(&t2, NULL);
-
-  double duration = (t2.tv_sec -t1.tv_sec)+((t2.tv_usec-t1.tv_usec)/1e6);
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(rank==0){
+    gettimeofday(&t2, NULL);
+  
+    double duration = (t2.tv_sec -t1.tv_sec)+((t2.tv_usec-t1.tv_usec)/1e6);
 
 #ifdef DUMP_RESULT
-  FILE* f_out = fopen("particles.log", "w");
-  assert(f_out);
-  print_particles(f_out, root);
-  fclose(f_out);
+    FILE* f_out = fopen("particles.log", "w");
+    assert(f_out);
+    print_particles(f_out, root);
+    fclose(f_out);
 #endif
 
-  printf("-----------------------------\n");
-  printf("nparticles: %d\n", nparticles);
-  printf("T_FINAL: %f\n", T_FINAL);
-  printf("-----------------------------\n");
-  printf("Simulation took %lf s to complete\n", duration);
+    printf("-----------------------------\n");
+    printf("nparticles: %d\n", nparticles);
+    printf("T_FINAL: %f\n", T_FINAL);
+    printf("-----------------------------\n");
+    printf("Simulation took %lf s to complete\n", duration);
 
 #ifdef DISPLAY
-  node_t *n = root;
-  clear_display();
-  draw_node(n);
-  flush_display();
+    node_t *n = root;
+    clear_display();
+    draw_node(n);
+    flush_display();
 
-  printf("Hit return to close the window.");
+    printf("Hit return to close the window.");
 
-  getchar();
-  /* Close the X window used to display the particles */
-  XCloseDisplay(theDisplay);
+    getchar();
+    /* Close the X window used to display the particles */
+    XCloseDisplay(theDisplay);
 #endif
-
+  }
+  MPI_Finalize();
   return 0;
 }
