@@ -253,6 +253,8 @@ int main(int argc, char**argv)
     MPI_Gatherv(par_per_proc, nums_per_proc, particle_mpi_t,
                 particles, counts, displs, particle_mpi_t,
                 0, MPI_COMM_WORLD);
+    
+    // int test_num = 1;
 
     /* 2. Move task (only in root) */ 
     if(rank == 0){
