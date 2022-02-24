@@ -1,0 +1,416 @@
+/*
+** nbody_barnes_hut.c - nbody simulation that implements the Barnes-Hut algorithm (O(nlog(n)))
+**
+**/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <math.h>
+#include <sys/time.h>
+#include <assert.h>
+#include <unistd.h>
+#include<stddef.h>
+
+#ifdef DISPLAY
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#endif
+
+#include "ui.h"
+#include "nbody.h"
+#include "nbody_tools.h"
+
+FILE* f_out=NULL;
+
+int nparticles=10;      /* number of particles */
+float T_FINAL=1.0;     /* simulation end time */
+
+particle_t*particles;
+
+node_t *root;
+
+
+double sum_speed_sq = 0;
+double max_acc = 0;
+double max_speed = 0;
+
+void init() {
+  init_alloc(4*nparticles);
+  root = malloc(sizeof(node_t));
+  init_node(root, NULL, XMIN, XMAX, YMIN, YMAX);
+}
+
+#ifdef DISPLAY
+extern Display *theDisplay;  /* These three variables are required to open the */
+extern GC theGC;             /* particle plotting window.  They are externally */
+extern Window theMain;       /* declared in ui.h but are also required here.   */
+#endif
+
+/* compute the force that a particle with position (x_pos, y_pos) and mass 'mass'
+ * applies to particle p
+ */
+void compute_force(particle_t*p, double x_pos, double y_pos, double mass) {
+  double x_sep, y_sep, dist_sq, grav_base;
+
+  x_sep = x_pos - p->x_pos;
+  y_sep = y_pos - p->y_pos;
+  dist_sq = MAX((x_sep*x_sep) + (y_sep*y_sep), 0.01);
+
+  /* Use the 2-dimensional gravity rule: F = d * (GMm/d^2) */
+  grav_base = GRAV_CONSTANT*(p->mass)*(mass)/dist_sq;
+
+  p->x_force += grav_base*x_sep;
+  p->y_force += grav_base*y_sep;
+}
+
+/* compute the force that node n acts on particle p */
+void compute_force_on_particle(node_t* n, particle_t *p) {
+  if(! n || n->n_particles==0) {
+    return;
+  }
+  if(n->particle) {
+    /* only one particle */
+    assert(n->children == NULL);
+
+    /*
+      If the current node is an external node (and it is not body b),
+      calculate the force exerted by the current node on b, and add
+      this amount to b's net force.
+    */
+    compute_force(p, n->x_center, n->y_center, n->mass);
+  } else {
+    /* There are multiple particles */
+
+    #define THRESHOLD 2
+    double size = n->x_max - n->x_min; // width of n
+    double diff_x = n->x_center - p->x_pos;
+    double diff_y = n->y_center - p->y_pos;
+    double distance = sqrt(diff_x*diff_x + diff_y*diff_y);
+
+#if BRUTE_FORCE
+    /*
+      Run the procedure recursively on each of the current
+      node's children.
+      --> This result in a brute-force computation (complexity: O(n*n))
+    */
+    int i;
+    for(i=0; i<4; i++) {
+      compute_force_on_particle(&n->children[i], p);
+    }
+#else
+    /* Use the Barnes-Hut algorithm to get an approximation */
+    if(size / distance < THRESHOLD) {
+      /*
+	The particle is far away. Use an approximation of the force
+      */
+      compute_force(p, n->x_center, n->y_center, n->mass);
+    } else {
+      /*
+        Otherwise, run the procedure recursively on each of the current
+	node's children.
+      */
+      int i;
+      for(i=0; i<4; i++) {
+	      compute_force_on_particle(&n->children[i], p);
+      }
+    }
+#endif
+  }
+}
+
+void compute_force_in_node(node_t *n) {
+  if(!n) return;
+
+  if(n->particle) {
+    particle_t*p = n->particle;
+    p->x_force = 0;
+    p->y_force = 0;
+    compute_force_on_particle(root, p);
+  }
+  if(n->children) {
+    int i;
+    for(i=0; i<4; i++) {
+      compute_force_in_node(&n->children[i]);
+    }
+  }
+}
+
+/* compute the new position/velocity */
+void move_particle(particle_t*p, double step, node_t* new_root) {
+
+  p->x_pos += (p->x_vel)*step;
+  p->y_pos += (p->y_vel)*step;
+  double x_acc = p->x_force/p->mass;
+  double y_acc = p->y_force/p->mass;
+  p->x_vel += x_acc*step;
+  p->y_vel += y_acc*step;
+
+  /* compute statistics */
+  double cur_acc = (x_acc*x_acc + y_acc*y_acc);
+  cur_acc = sqrt(cur_acc);
+  double speed_sq = (p->x_vel)*(p->x_vel) + (p->y_vel)*(p->y_vel);
+  double cur_speed = sqrt(speed_sq);
+
+  sum_speed_sq += speed_sq;
+  max_acc = MAX(max_acc, cur_acc);
+  max_speed = MAX(max_speed, cur_speed);
+
+  p->node = NULL;
+  if(p->x_pos < new_root->x_min ||
+     p->x_pos > new_root->x_max ||
+     p->y_pos < new_root->y_min ||
+     p->y_pos > new_root->y_max) {
+    free(p);
+    nparticles--;
+  } else {
+    insert_particle(p, new_root);
+  }
+}
+
+/* compute the new position of the particles in a node */
+void move_particles_in_node(node_t*n, double step, node_t *new_root) {
+  if(!n) return;
+
+  if(n->particle) {
+    particle_t*p = n->particle;
+    move_particle(p, step, new_root);
+  }
+  if(n->children) {
+    int i;
+    for(i=0; i<4; i++) {
+      move_particles_in_node(&n->children[i], step, new_root);
+    }
+  }
+}
+
+/*
+  Move particles one time step.
+
+  Update positions, velocity, and acceleration.
+  Return local computations.
+*/
+void all_move_particles(double step)
+{
+  /* First calculate force for particles. */
+  int process_sequence_num = (int)(nparticles/process_num)+1;
+  /*MPI_Datatype ParticleType;
+  MPI_Datatype types[7]={MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE};
+  int block_length[7]={1,1,1,1,1,1,1};
+  MPI_Aint displacement[7];*/
+  
+  // test array
+  double *vice_mass = malloc(sizeof(double)*process_sequence_num);
+  double *vice_x_pos= malloc(sizeof(double)*process_sequence_num);
+  double *vice_y_pos= malloc(sizeof(double)*process_sequence_num);
+  double *vice_x_vel= malloc(sizeof(double)*process_sequence_num);
+  double *vice_y_vel= malloc(sizeof(double)*process_sequence_num);
+  double *vice_x_force= malloc(sizeof(double)*process_sequence_num);
+  double *vice_y_force= malloc(sizeof(double)*process_sequence_num);
+
+  double *mass = malloc(sizeof(double)*process_sequence_num*process_num);
+  double *x_pos = malloc(sizeof(double)*process_sequence_num*process_num);
+  double *y_pos = malloc(sizeof(double)*process_sequence_num*process_num);
+  double *x_vel = malloc(sizeof(double)*process_sequence_num*process_num);
+  double *y_vel = malloc(sizeof(double)*process_sequence_num*process_num);
+  double *x_force = malloc(sizeof(double)*process_sequence_num*process_num);
+  double *y_force = malloc(sizeof(double)*process_sequence_num*process_num);
+  
+  for(int i = rank*process_sequence_num; i < nparticles&&i < (rank+1)*(process_sequence_num); i++){
+    compute_force_in_node(particles[i].node);
+    vice_mass[i-rank*process_sequence_num]=particles[i].mass;
+    vice_x_force[i-rank*process_sequence_num]=particles[i].x_force;
+    vice_x_pos[i-rank*process_sequence_num]=particles[i].x_pos;
+    vice_x_vel[i-rank*process_sequence_num]=particles[i].x_vel;
+    vice_y_force[i-rank*process_sequence_num]=particles[i].y_force;
+    vice_y_pos[i-rank*process_sequence_num]=particles[i].y_pos;
+    vice_y_vel[i-rank*process_sequence_num]=particles[i].y_vel;
+  }
+  /*for(int i=0;i<process_sequence_num;i++){
+    printf("x_force: %lf of rank %d for process length: %d\n",vice_x_force[i], rank, process_sequence_num);
+  }*/
+  /*for(int i=0;i<nparticles;i++){
+    printf("test: %lf in rank %d\n",particles[i].x_force, rank);
+  }*/
+  /*
+  displacement[0]=offsetof(particle_vice_t,x_pos);
+  displacement[1]=offsetof(particle_vice_t,y_pos);
+  displacement[2]=offsetof(particle_vice_t,x_vel);
+  displacement[3]=offsetof(particle_vice_t,y_vel);
+  displacement[4]=offsetof(particle_vice_t,x_force);
+  displacement[5]=offsetof(particle_vice_t,y_force);
+  displacement[6]=offsetof(particle_vice_t,mass);
+
+  
+  MPI_Type_create_struct(7,block_length,displacement,types,&ParticleType);
+  MPI_Type_commit(&ParticleType);
+  */
+  
+  /*
+  particle_t* accept_particles = malloc(sizeof(particle_vice_t)*process_sequence_num*process_num);
+  if(rank==0){
+    printf("Length: %d, sublength: %d, sum of the process: %d\n",process_sequence_num*process_num,process_sequence_num,process_num);
+  }
+  */
+  //MPI_Allgather(vice_particles,process_sequence_num,ParticleType,accept_particles,process_sequence_num,ParticleType,0,MPI_COMM_WORLD);
+  
+  MPI_Allgather(vice_mass,process_sequence_num,MPI_DOUBLE,mass,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  MPI_Allgather(vice_x_pos,process_sequence_num,MPI_DOUBLE,x_pos,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  MPI_Allgather(vice_y_pos,process_sequence_num,MPI_DOUBLE,y_pos,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  MPI_Allgather(vice_x_vel,process_sequence_num,MPI_DOUBLE,x_vel,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  MPI_Allgather(vice_y_vel,process_sequence_num,MPI_DOUBLE,y_vel,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  MPI_Allgather(vice_x_force,process_sequence_num,MPI_DOUBLE,x_force,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  MPI_Allgather(vice_y_force,process_sequence_num,MPI_DOUBLE,y_force,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
+  //printf("x_force: %lf in rank %d\n",x_force[0],rank);
+  for(int i = 0; i < nparticles; i++){
+    particles[i].mass=mass[i];
+    particles[i].x_force=x_force[i];
+    particles[i].x_pos=x_pos[i];
+    particles[i].x_vel=x_vel[i];
+    particles[i].y_force=y_force[i];
+    particles[i].y_pos=y_pos[i];
+    particles[i].y_vel=y_vel[i];
+  }
+  for(int i = 0; i < nparticles; i++){
+    printf("rank: %d, x_force: %lf\n", rank, particles[i].x_force);
+  }
+  free(vice_mass);
+  free(vice_x_force);
+  free(vice_x_pos);
+  free(vice_x_vel);
+  free(vice_y_force);
+  free(vice_y_pos);
+  free(vice_y_vel);
+  free(mass);
+  free(x_force);
+  free(x_pos);
+  free(x_vel);
+  free(y_force);
+  free(y_pos);
+  free(y_vel);
+  
+  
+
+  node_t* new_root = malloc(sizeof(node_t));
+  init_node(new_root, NULL, XMIN, XMAX, YMIN, YMAX);
+
+  /* then move all particles and return statistics */
+  move_particles_in_node(root, step, new_root);
+
+  free_node(root);
+  free(root);
+  root = new_root;
+}
+
+void run_simulation() {
+  double t = 0.0, dt = 0.01;
+
+  while (t < T_FINAL && nparticles>0) {
+    /* Update time. */
+    t += dt;
+    /* Move particles with the current and compute rms velocity. */
+    all_move_particles(dt);
+
+    /* Adjust dt based on maximum speed and acceleration--this
+       simple rule tries to insure that no velocity will change
+       by more than 10% */
+
+    dt = 0.1*max_speed/max_acc;
+    
+    /* Plot the movement of the particle */
+#if DISPLAY
+    //MPI_Barrier(MPI_COMM_WORLD);
+    if(rank==0){
+      node_t *n = root;
+      clear_display();
+      draw_node(n);
+      flush_display();
+    }
+#endif
+  }
+}
+
+/* create a quad-tree from an array of particles */
+void insert_all_particles(int nparticles, particle_t*particles, node_t*root) {
+  int i;
+  for(i=0; i<nparticles; i++) {
+    insert_particle(&particles[i], root);
+  }
+}
+
+/*
+  Simulate the movement of nparticles particles.
+*/
+int main(int argc, char**argv)
+{
+  
+  MPI_Init(&argc, &argv);
+  MPI_Comm_size(MPI_COMM_WORLD, &process_num);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  if(process_num<2){
+    printf("Require more processes!\n");
+    return 0;
+  }
+
+  if(argc >= 2) {
+    nparticles = atoi(argv[1]);
+  }
+  if(argc == 3) {
+    T_FINAL = atof(argv[2]);
+  }
+  
+  init();
+  /* Allocate global shared arrays for the particles data set. */
+  particles = malloc(sizeof(particle_t)*nparticles);
+  all_init_particles(nparticles, particles);
+  
+  //MPI_Scatter(particles,process_sequence_num,);
+  
+  insert_all_particles(nparticles, particles, root);
+  //printf("particle location: %lf in rank %d\n", particles[0].x_pos,rank);
+  /* Initialize thread data structures */
+#ifdef DISPLAY
+    /* Open an X window to display the particles */
+    simple_init (100,100,DISPLAY_SIZE, DISPLAY_SIZE);
+#endif
+  struct timeval t1, t2;
+  if(rank==0){
+    gettimeofday(&t1, NULL);
+  }
+  /* Main thread starts simulation ... */
+  run_simulation();
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(rank==0){
+    gettimeofday(&t2, NULL);
+  
+    double duration = (t2.tv_sec -t1.tv_sec)+((t2.tv_usec-t1.tv_usec)/1e6);
+
+#ifdef DUMP_RESULT
+    FILE* f_out = fopen("particles.log", "w");
+    assert(f_out);
+    print_particles(f_out, root);
+    fclose(f_out);
+#endif
+
+    printf("-----------------------------\n");
+    printf("nparticles: %d\n", nparticles);
+    printf("T_FINAL: %f\n", T_FINAL);
+    printf("-----------------------------\n");
+    printf("Simulation took %lf s to complete\n", duration);
+
+#ifdef DISPLAY
+    node_t *n = root;
+    clear_display();
+    draw_node(n);
+    flush_display();
+
+    printf("Hit return to close the window.");
+
+    getchar();
+    /* Close the X window used to display the particles */
+    XCloseDisplay(theDisplay);
+#endif
+  }
+  MPI_Finalize();
+  return 0;
+}

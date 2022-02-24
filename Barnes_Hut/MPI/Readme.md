@@ -1,0 +1,1 @@
+It should be noticed that, the `particle` (a pointer) store all the information about the particles.
