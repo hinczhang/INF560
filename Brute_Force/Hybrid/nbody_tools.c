@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <omp.h>
 
 #include "ui.h"
 #include "nbody.h"
@@ -220,6 +221,7 @@ void all_init_particles(int num_particles, particle_t *particles)
   int    i;
   double total_particle = num_particles;
 
+#pragma omp parallel for private(i) schedule(dynamic)
   for (i = 0; i < num_particles; i++) {
     particle_t *particle = &particles[i];
 #if 0
