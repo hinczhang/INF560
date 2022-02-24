@@ -192,7 +192,48 @@ void move_particles_in_node(node_t*n, double step, node_t *new_root) {
 void all_move_particles(double step)
 {
   /* First calculate force for particles. */
-  compute_force_in_node(root);
+  int process_sequence_num = (int)(nparticles/process_num)+1;
+  // test array
+  particle_vice_t* vice_particles = malloc(sizeof(particle_vice_t)*process_sequence_num);
+  particle_vice_t* total_particles = malloc(sizeof(particle_vice_t)*process_sequence_num*process_num);
+  int begin = rank*process_sequence_num;
+  int up_level = nparticles>(rank+1)*(process_sequence_num)?(rank+1)*(process_sequence_num):nparticles;
+  #pragma omp parallel
+  {
+    #pragma omp parallel for schedule(dynamic)
+    for(int i = begin; i < up_level; i++){
+      compute_force_in_node(particles[i].node);
+      vice_particles[i-rank*process_sequence_num].mass=particles[i].mass;
+      vice_particles[i-rank*process_sequence_num].x_force=particles[i].x_force;
+      vice_particles[i-rank*process_sequence_num].y_force=particles[i].y_force;
+      vice_particles[i-rank*process_sequence_num].x_pos=particles[i].x_pos;
+      vice_particles[i-rank*process_sequence_num].y_pos=particles[i].y_pos;
+      vice_particles[i-rank*process_sequence_num].x_vel=particles[i].x_vel;
+      vice_particles[i-rank*process_sequence_num].y_vel=particles[i].y_vel;
+    
+    }
+  }
+ 
+  MPI_Allgather(vice_particles,process_sequence_num,ParticleType,total_particles,process_sequence_num,ParticleType,MPI_COMM_WORLD);
+  #pragma omp parallel
+  {
+    #pragma omp parallel for schedule(dynamic)
+    for(int i = 0; i < nparticles; i++){
+      particles[i].mass=total_particles[i].mass;
+      particles[i].x_force=total_particles[i].x_force;
+      particles[i].x_pos=total_particles[i].x_pos;
+      particles[i].x_vel=total_particles[i].x_vel;
+      particles[i].y_force=total_particles[i].y_force;
+      particles[i].y_pos=total_particles[i].y_pos;
+      particles[i].y_vel=total_particles[i].y_vel;
+    }
+  }
+  /*for(int i = 0; i < nparticles; i++){
+    printf("rank: %d, x_force: %lf\n", rank, particles[i].x_force);
+  }*/
+  free(vice_particles);
+  free(total_particles);
+  //compute_force_in_node(root);
 
   node_t* new_root = malloc(sizeof(node_t));
   init_node(new_root, NULL, XMIN, XMAX, YMIN, YMAX);
@@ -222,10 +263,12 @@ void run_simulation() {
 
     /* Plot the movement of the particle */
 #if DISPLAY
+if(rank==0){
     node_t *n = root;
     clear_display();
     draw_node(n);
     flush_display();
+}
 #endif
   }
 }
@@ -243,12 +286,29 @@ void insert_all_particles(int nparticles, particle_t*particles, node_t*root) {
 */
 int main(int argc, char**argv)
 {
+  MPI_Init(&argc, &argv);
+  MPI_Comm_size(MPI_COMM_WORLD, &process_num);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   if(argc >= 2) {
     nparticles = atoi(argv[1]);
   }
   if(argc == 3) {
     T_FINAL = atof(argv[2]);
   }
+  MPI_Datatype types[7]={MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE};
+  int block_length[7]={1,1,1,1,1,1,1};
+  MPI_Aint displacement[7];
+  displacement[0]=offsetof(particle_vice_t,x_pos);
+  displacement[1]=offsetof(particle_vice_t,y_pos);
+  displacement[2]=offsetof(particle_vice_t,x_vel);
+  displacement[3]=offsetof(particle_vice_t,y_vel);
+  displacement[4]=offsetof(particle_vice_t,x_force);
+  displacement[5]=offsetof(particle_vice_t,y_force);
+  displacement[6]=offsetof(particle_vice_t,mass);
+
+  
+  MPI_Type_create_struct(7,block_length,displacement,types,&ParticleType);
+  MPI_Type_commit(&ParticleType);
 
   init();
 
@@ -264,11 +324,13 @@ int main(int argc, char**argv)
 #endif
 
   struct timeval t1, t2;
-  gettimeofday(&t1, NULL);
-
+  if(rank==0){
+    gettimeofday(&t1, NULL);
+  }
   /* Main thread starts simulation ... */
   run_simulation();
-
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(rank==0){
   gettimeofday(&t2, NULL);
 
   double duration = (t2.tv_sec -t1.tv_sec)+((t2.tv_usec-t1.tv_usec)/1e6);
@@ -298,6 +360,7 @@ int main(int argc, char**argv)
   /* Close the X window used to display the particles */
   XCloseDisplay(theDisplay);
 #endif
-
+  }
+  MPI_Finalize();
   return 0;
 }

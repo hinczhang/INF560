@@ -194,45 +194,28 @@ void all_move_particles(double step)
 {
   /* First calculate force for particles. */
   int process_sequence_num = (int)(nparticles/process_num)+1;
-  /*MPI_Datatype ParticleType;
+  MPI_Datatype ParticleType;
   MPI_Datatype types[7]={MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE};
   int block_length[7]={1,1,1,1,1,1,1};
-  MPI_Aint displacement[7];*/
+  MPI_Aint displacement[7];
   
   // test array
-  double *vice_mass = malloc(sizeof(double)*process_sequence_num);
-  double *vice_x_pos= malloc(sizeof(double)*process_sequence_num);
-  double *vice_y_pos= malloc(sizeof(double)*process_sequence_num);
-  double *vice_x_vel= malloc(sizeof(double)*process_sequence_num);
-  double *vice_y_vel= malloc(sizeof(double)*process_sequence_num);
-  double *vice_x_force= malloc(sizeof(double)*process_sequence_num);
-  double *vice_y_force= malloc(sizeof(double)*process_sequence_num);
+  particle_vice_t* vice_particles = malloc(sizeof(particle_vice_t)*process_sequence_num);
+  particle_vice_t* total_particles = malloc(sizeof(particle_vice_t)*process_sequence_num*process_num);
 
-  double *mass = malloc(sizeof(double)*process_sequence_num*process_num);
-  double *x_pos = malloc(sizeof(double)*process_sequence_num*process_num);
-  double *y_pos = malloc(sizeof(double)*process_sequence_num*process_num);
-  double *x_vel = malloc(sizeof(double)*process_sequence_num*process_num);
-  double *y_vel = malloc(sizeof(double)*process_sequence_num*process_num);
-  double *x_force = malloc(sizeof(double)*process_sequence_num*process_num);
-  double *y_force = malloc(sizeof(double)*process_sequence_num*process_num);
-  
   for(int i = rank*process_sequence_num; i < nparticles&&i < (rank+1)*(process_sequence_num); i++){
     compute_force_in_node(particles[i].node);
-    vice_mass[i-rank*process_sequence_num]=particles[i].mass;
-    vice_x_force[i-rank*process_sequence_num]=particles[i].x_force;
-    vice_x_pos[i-rank*process_sequence_num]=particles[i].x_pos;
-    vice_x_vel[i-rank*process_sequence_num]=particles[i].x_vel;
-    vice_y_force[i-rank*process_sequence_num]=particles[i].y_force;
-    vice_y_pos[i-rank*process_sequence_num]=particles[i].y_pos;
-    vice_y_vel[i-rank*process_sequence_num]=particles[i].y_vel;
+    vice_particles[i-rank*process_sequence_num].mass=particles[i].mass;
+    vice_particles[i-rank*process_sequence_num].x_force=particles[i].x_force;
+    vice_particles[i-rank*process_sequence_num].y_force=particles[i].y_force;
+    vice_particles[i-rank*process_sequence_num].x_pos=particles[i].x_pos;
+    vice_particles[i-rank*process_sequence_num].y_pos=particles[i].y_pos;
+    vice_particles[i-rank*process_sequence_num].x_vel=particles[i].x_vel;
+    vice_particles[i-rank*process_sequence_num].y_vel=particles[i].y_vel;
+   
   }
-  /*for(int i=0;i<process_sequence_num;i++){
-    printf("x_force: %lf of rank %d for process length: %d\n",vice_x_force[i], rank, process_sequence_num);
-  }*/
-  /*for(int i=0;i<nparticles;i++){
-    printf("test: %lf in rank %d\n",particles[i].x_force, rank);
-  }*/
-  /*
+  
+  
   displacement[0]=offsetof(particle_vice_t,x_pos);
   displacement[1]=offsetof(particle_vice_t,y_pos);
   displacement[2]=offsetof(particle_vice_t,x_vel);
@@ -244,51 +227,25 @@ void all_move_particles(double step)
   
   MPI_Type_create_struct(7,block_length,displacement,types,&ParticleType);
   MPI_Type_commit(&ParticleType);
-  */
   
-  /*
-  particle_t* accept_particles = malloc(sizeof(particle_vice_t)*process_sequence_num*process_num);
-  if(rank==0){
-    printf("Length: %d, sublength: %d, sum of the process: %d\n",process_sequence_num*process_num,process_sequence_num,process_num);
-  }
-  */
-  //MPI_Allgather(vice_particles,process_sequence_num,ParticleType,accept_particles,process_sequence_num,ParticleType,0,MPI_COMM_WORLD);
-  
-  MPI_Allgather(vice_mass,process_sequence_num,MPI_DOUBLE,mass,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
-  MPI_Allgather(vice_x_pos,process_sequence_num,MPI_DOUBLE,x_pos,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
-  MPI_Allgather(vice_y_pos,process_sequence_num,MPI_DOUBLE,y_pos,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
-  MPI_Allgather(vice_x_vel,process_sequence_num,MPI_DOUBLE,x_vel,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
-  MPI_Allgather(vice_y_vel,process_sequence_num,MPI_DOUBLE,y_vel,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
-  MPI_Allgather(vice_x_force,process_sequence_num,MPI_DOUBLE,x_force,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
-  MPI_Allgather(vice_y_force,process_sequence_num,MPI_DOUBLE,y_force,process_sequence_num,MPI_DOUBLE,MPI_COMM_WORLD);
-  //printf("x_force: %lf in rank %d\n",x_force[0],rank);
+ 
+  MPI_Allgather(vice_particles,process_sequence_num,ParticleType,total_particles,process_sequence_num,ParticleType,MPI_COMM_WORLD);
+
   for(int i = 0; i < nparticles; i++){
-    particles[i].mass=mass[i];
-    particles[i].x_force=x_force[i];
-    particles[i].x_pos=x_pos[i];
-    particles[i].x_vel=x_vel[i];
-    particles[i].y_force=y_force[i];
-    particles[i].y_pos=y_pos[i];
-    particles[i].y_vel=y_vel[i];
+ 
+    particles[i].mass=total_particles[i].mass;
+    particles[i].x_force=total_particles[i].x_force;
+    particles[i].x_pos=total_particles[i].x_pos;
+    particles[i].x_vel=total_particles[i].x_vel;
+    particles[i].y_force=total_particles[i].y_force;
+    particles[i].y_pos=total_particles[i].y_pos;
+    particles[i].y_vel=total_particles[i].y_vel;
   }
   for(int i = 0; i < nparticles; i++){
     printf("rank: %d, x_force: %lf\n", rank, particles[i].x_force);
   }
-  free(vice_mass);
-  free(vice_x_force);
-  free(vice_x_pos);
-  free(vice_x_vel);
-  free(vice_y_force);
-  free(vice_y_pos);
-  free(vice_y_vel);
-  free(mass);
-  free(x_force);
-  free(x_pos);
-  free(x_vel);
-  free(y_force);
-  free(y_pos);
-  free(y_vel);
-  
+  free(vice_particles);
+  free(total_particles);
   
 
   node_t* new_root = malloc(sizeof(node_t));
@@ -347,10 +304,6 @@ int main(int argc, char**argv)
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &process_num);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  if(process_num<2){
-    printf("Require more processes!\n");
-    return 0;
-  }
 
   if(argc >= 2) {
     nparticles = atoi(argv[1]);
