@@ -1,5 +1,5 @@
 CC	= gcc
-CFLAGS	= -O0 -g -Wall -fopenmp
+CFLAGS	= -O0 -g -Wall
 LDFLAGS = -g -lm -lpthread -lX11 -fopenmp
 VERBOSE	=
 TARGET	= nbody_brute_force nbody_barnes_hut
