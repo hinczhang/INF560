@@ -1,6 +1,6 @@
 #ifndef NBODY_H
 #define NBODY_H
-#include<openmpi/mpi.h>
+#include<mpi.h>
 struct node;
 struct particle;
 

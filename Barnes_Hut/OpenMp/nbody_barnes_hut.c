@@ -113,15 +113,14 @@ void compute_force_on_particle(node_t* n, particle_t *p) {
 	node's children.
       */
       int i;
-      
       for(i=0; i<4; i++) {
-	      compute_force_on_particle(&n->children[i], p);
+        compute_force_on_particle(&n->children[i], p);
       }
     }
 #endif
   }
 }
-
+/*
 void serial_compute_force_in_node(node_t *n) {
   if(!n) return;
 
@@ -136,10 +135,9 @@ void serial_compute_force_in_node(node_t *n) {
     for(i=0; i<4; i++) {
       serial_compute_force_in_node(&n->children[i]);
     }
-    
   }
 }
-
+*/
 void compute_force_in_node(node_t *n) {
   if(!n) return;
 
@@ -151,19 +149,9 @@ void compute_force_in_node(node_t *n) {
   }
   if(n->children) {
     int i;
-    /*if(n->depth<=root->depth-LEVEL_SUBTRACT){
-      for(i=0; i<4; i++) {
-          serial_compute_force_in_node(&n->children[i]);
-       }
-       return;
-    }*/
-    //printf("Node depth: %d, Root Depth: %d\n", n->depth, root->depth);
-  
-      for(i=0; i<4; i++) {
-        
-        //printf("Thread: %d, In depth %d\n", omp_get_thread_num(), n->depth);
-        compute_force_in_node(&n->children[i]);
-      }
+    for(i=0; i<4; i++) {;
+      compute_force_in_node(&n->children[i]);
+    }
     
   }
 }
@@ -196,7 +184,9 @@ void move_particle(particle_t*p, double step, node_t* new_root) {
     free(p);
     nparticles--;
   } else {
+    omp_set_lock(&lock);
     insert_particle(p, new_root);
+    omp_unset_lock(&lock);
   }
 }
 
@@ -210,9 +200,14 @@ void move_particles_in_node(node_t*n, double step, node_t *new_root) {
   }
   if(n->children) {
     int i;
-    for(i=0; i<4; i++) {
-      move_particles_in_node(&n->children[i], step, new_root);
-    }
+    //#pragma omp parallel
+    //{
+      #pragma omp single
+      for(i=0; i<4; i++) {
+        #pragma omp task
+        move_particles_in_node(&n->children[i], step, new_root);
+      }
+    //}
   }
 }
 
@@ -227,10 +222,10 @@ void all_move_particles(double step)
   /* First calculate force for particles. */
   int i=0;
 
-  #pragma omp for schedule(dynamic)
-    for(i=0;i<nparticles;i++) {
-      compute_force_in_node(particles[i].node);
-    }
+  #pragma omp parallel for schedule(dynamic)
+  for(i=0;i<nparticles;i++) {
+    compute_force_in_node(particles[i].node);
+  }
   
   node_t* new_root = malloc(sizeof(node_t));
   init_node(new_root, NULL, XMIN, XMAX, YMIN, YMAX);
@@ -266,12 +261,15 @@ void run_simulation() {
     flush_display();
 #endif
   }
+  int i=0;
+  /*for(;i<nparticles;i++){
+    printf("pos = (%lf,%lf)\n",particles[i].x_pos,particles[i].y_pos);
+  }*/
 }
 
 /* create a quad-tree from an array of particles */
 void insert_all_particles(int nparticles, particle_t*particles, node_t*root) {
   int i=0;
-  
   for(i=0; i<nparticles; i++) {
     insert_particle(&particles[i], root);
   }
@@ -289,7 +287,7 @@ int main(int argc, char**argv)
   if(argc == 3) {
     T_FINAL = atof(argv[2]);
   }
-  
+  omp_init_lock(&lock);
 
   init();
 
@@ -340,6 +338,6 @@ int main(int argc, char**argv)
   /* Close the X window used to display the particles */
   XCloseDisplay(theDisplay);
 #endif
-
+  omp_destroy_lock(&lock);
   return 0;
 }
