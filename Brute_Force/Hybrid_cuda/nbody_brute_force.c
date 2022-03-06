@@ -123,7 +123,8 @@ int main(int argc, char**argv)
   }
 
   init();
-  int rank, size;
+  int rank, size; 
+
 
   /* MPI Initialization */
   MPI_Init(&argc, &argv);
@@ -153,9 +154,9 @@ int main(int argc, char**argv)
   double t = 0.0, dt = 0.01;
   int i, j;
   int nums_per_proc = nparticles/(size-1);
+  
   int root_task = nparticles - nums_per_proc*(size-1);
   particle_t* par_per_proc;
-
   /* Create MPI type for collective communication */
   MPI_Datatype particle_mpi_t;
   int blocklens[1] = {7};
