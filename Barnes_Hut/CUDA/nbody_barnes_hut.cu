@@ -34,6 +34,58 @@ double sum_speed_sq = 0;
 double max_acc = 0;
 double max_speed = 0;
 
+/*****************************************
+START: Private revision to make the tree as an array
+******************************************/
+#include <stdint.h>
+#define CHILD_NUM 4
+
+struct level_node{
+  node_t *nodes;
+}level_node_t;
+
+int *index_record;
+level_node *array_root;
+bool isLeaf(node_t* some_node){
+  if(some_node->children==NULL){
+    return true;
+  }
+  return false;
+}
+
+int mortonCode(int row, int col){
+    uint64_t morton = 0;
+    row = (uint64_t) row;
+    col =(uint64_t) col;
+    for (int i = 0; i < sizeof(row) * 8; i++) {
+        morton |= (row & (uint64_t)1 << i) << i | (col & (uint64_t)1 << i) << (i + 1);
+    }
+    return morton;
+}
+
+void reorganize_tree_as_an_array(node_t *quad_tree){
+  int i;
+ 
+	if (quad_tree == NULL) return;
+  // TODO: Based on the root range and the node range to confirm the coordinate of the cell
+  int index = 
+	if (isLeaf(quad_tree)&&quad_tree->particle==NULL)
+	{
+		return;
+	}else if(isLeaf(quad_tree)&&quad_tree->particle!=NULL){
+
+    return;
+  }else{
+
+  }
+	for ( i = 0; i < CHILD_NUM; ++i )
+		reorganize_tree_as_an_array(&(quad_tree->children[i]));
+}
+
+/*****************************************
+END: Private revision to make the tree as an array
+******************************************/
+
 void init() {
   init_alloc(4*nparticles);
   root = (node_t*)malloc(sizeof(node_t));
@@ -193,6 +245,11 @@ void all_move_particles(double step)
 {
   /* First calculate force for particles. */
   //compute_force_in_node(root);
+  /**********************************
+  WARNING: revision field
+  **********************************/
+  array_root = (level_node*)malloc(sizeof(level_node)*(int)pow(4,root->depth-1));
+  index_record = (int*)malloc(sizeof(int)*nparticles);
   int i=0;
   for(;i<nparticles;i++){
     compute_force_in_node(particles[i].node);
@@ -205,6 +262,8 @@ void all_move_particles(double step)
 
   free_node(root);
   free(root);
+  free(array_root);
+  free(index_record);
   root = new_root;
 }
 
