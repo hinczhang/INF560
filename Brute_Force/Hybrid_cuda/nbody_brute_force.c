@@ -40,7 +40,7 @@ double dt = 0.01;
 
 int step = 0;
 
-void cuda_compute_force(particle_t*p, double x_pos, double y_pos, double mass);
+void cuda_compute_force(int i, int nparticles, particle_t * p);
 
 void init() {
   /* Nothing to do */
@@ -125,7 +125,6 @@ int main(int argc, char**argv)
   init();
   int rank, size; 
 
-
   /* MPI Initialization */
   MPI_Init(&argc, &argv);
   
@@ -203,11 +202,12 @@ int main(int argc, char**argv)
         for (i = root_task + nums_per_proc*(rank-1); i < root_task + nums_per_proc * rank; i++){
           particles[i].x_force = 0;
           particles[i].y_force = 0;
-          for(j = 0; j < nparticles; j++) {
-            particle_t*p = &particles[j];
-            //compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
-            cuda_compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
-          }
+          // for(j = 0; j < nparticles; j++) {
+          //   particle_t*p = &particles[j];
+          //   //compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
+          //   cuda_compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
+          // }
+          cuda_compute_force(i, nparticles, particles);
           par_per_proc[i-root_task-nums_per_proc*(rank-1)] = particles[i];
         }
 
