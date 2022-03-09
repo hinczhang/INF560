@@ -49,6 +49,7 @@ void mem_init(struct memory_t *mem, size_t block_size, int nb_blocks)
 /**************************************************************************/
 void *mem_alloc(struct memory_t*mem)
 {
+  
   Bloc *ptr;
   assert(mem->debutListe != NULL);
 

@@ -285,7 +285,7 @@ void run_simulation() {
     }
 #endif
   }
-  int i=0;
+
   /*for(;i<nparticles;i++){
     printf("pos=(%lf,%lf)\n",particles[i].x_pos,particles[i].y_pos);
   }*/

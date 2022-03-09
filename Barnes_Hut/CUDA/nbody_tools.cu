@@ -67,8 +67,9 @@ void print_particles(FILE* f, node_t*n) {
   }
 }
 
-/* Initialize a node */
-void init_node(node_t* n, node_t* parent, double x_min, double x_max, double y_min, double y_max) {
+
+
+__device__ void init_node(node_t* n, node_t* parent, double x_min, double x_max, double y_min, double y_max) {
   n->parent = parent;
   n->children = NULL;
   n->n_particles = 0;
@@ -100,7 +101,7 @@ void init_node(node_t* n, node_t* parent, double x_min, double x_max, double y_m
 /* Compute the position of a particle in a node and return
  * the quadrant in which it should be placed
  */
-int get_quadrant(particle_t* particle, node_t*node) {
+__device__ int get_quadrant(particle_t* particle, node_t*node) {
   double x_min = node->x_min;
   double x_max = node->x_max;
   double x_center = x_min+(x_max-x_min)/2;
@@ -130,7 +131,8 @@ int get_quadrant(particle_t* particle, node_t*node) {
 }
 
 /* inserts a particle in a node (or one of its children)  */
-void insert_particle(particle_t* particle, node_t*node) {
+__device__ void insert_particle(particle_t* particle, node_t*node) {
+  
 #if 0
   assert(particle->x_pos >= node->x_min);
   assert(particle->x_pos <= node->x_max);
@@ -139,10 +141,9 @@ void insert_particle(particle_t* particle, node_t*node) {
 
   assert(particle->node == NULL);
 #endif
-  if(node->n_particles == 0 &&
-     node->children == NULL) {
-    assert(node->children == NULL);
 
+  if(node->n_particles == 0 && node->children == NULL) {
+    assert(node->children == NULL);
     /* there's no particle. insert directly */
     node->particle = particle;
     node->n_particles++;
@@ -153,10 +154,10 @@ void insert_particle(particle_t* particle, node_t*node) {
 
     particle->node = node;
     assert(node->children == NULL);
+    
     return;
   } else {
     /* There's already a particle */
-
     if(! node->children) {
       /* there's no children yet */
       /* create 4 children and move the already-inserted particle to one of them */
@@ -169,29 +170,30 @@ void insert_particle(particle_t* particle, node_t*node) {
       double y_min = node->y_min;
       double y_max = node->y_max;
       double y_center = y_min+(y_max-y_min)/2;
-
+      
       init_node(&node->children[0], node, x_min, x_center, y_min, y_center);
       init_node(&node->children[1], node, x_center, x_max, y_min, y_center);
       init_node(&node->children[2], node, x_min, x_center, y_center, y_max);
       init_node(&node->children[3], node, x_center, x_max, y_center, y_max);
-
+      
       /* move the already-inserted particle to one of the children */
       particle_t*ptr = node->particle;
       //assert(ptr->node == node);
+      //printf("x_pos: %lf y_pos: %lf node_x_min: %lf node_y_min: %lf\n",node->particle->x_vel,node->particle->y_vel,node->x_min,node->y_min);
       int quadrant = get_quadrant(ptr, node);
+      //printf("OKK\n");
       node->particle = NULL;
       ptr->node = NULL;
 
       insert_particle(ptr, &node->children[quadrant]);
+      
     }
 
     /* insert the particle to one of the children */
     int quadrant = get_quadrant(particle, node);
     node->n_particles++;
-
     //assert(particle->node == NULL);
     insert_particle(particle, &node->children[quadrant]);
-
     /* update the mass and center of the node */
     double total_mass = 0;
     double total_x = 0;
@@ -205,6 +207,7 @@ void insert_particle(particle_t* particle, node_t*node) {
     node->mass = total_mass;
     node->x_center = total_x/total_mass;
     node->y_center = total_y/total_mass;
+
 #if 0
     assert(node->particle == NULL);
     assert(node->n_particles > 0);
@@ -212,53 +215,25 @@ void insert_particle(particle_t* particle, node_t*node) {
   }
 }
 
-/*
-  Place particles in their initial positions.
-*/
-void all_init_particles(int num_particles, particle_t *particles)
-{
-  int    i;
-  double total_particle = num_particles;
 
-  for (i = 0; i < num_particles; i++) {
-    particle_t *particle = &particles[i];
-#if 0
-    particle->x_pos = ((rand() % max_resolution)- (max_resolution/2))*2.0 / max_resolution;
-    particle->y_pos = ((rand() % max_resolution)- (max_resolution/2))*2.0 / max_resolution;
-    particle->x_vel = particle->y_pos;
-    particle->y_vel = particle->x_pos;
-#else
-    particle->x_pos = i*2.0/nparticles - 1.0;
-    particle->y_pos = 0.0;
-    particle->x_vel = 0.0;
-    particle->y_vel = particle->x_pos;
-#endif
-    particle->mass = 1.0 + (num_particles+i)/total_particle;
-    particle->node = NULL;
+__device__ struct memory_t mem_node;
 
-    //insert_particle(particle, root);
-  }
-}
-
-
-struct memory_t mem_node;
-
-void init_alloc(int nb_blocks) {
+__global__ void init_alloc(int nb_blocks) {
   mem_init(&mem_node, 4*sizeof(node_t), nb_blocks);
 }
 
 /* allocate a block of 4 nodes */
-node_t* alloc_node() {
+__device__ node_t* alloc_node() {
   node_t*ret = (node_t*)mem_alloc(&mem_node);
   return ret;
 }
 
-void free_root(node_t*root) {
+__device__ void free_root(node_t*root) {
   free_node(root);
   mem_free(&mem_node, root);
 }
 
-void free_node(node_t* n) {
+__device__ void free_node(node_t* n) {
   if(!n) return;
 
   if(n->children) {

@@ -183,12 +183,12 @@ void insert_particle(particle_t* particle, node_t*node) {
       ptr->node = NULL;
 
       insert_particle(ptr, &node->children[quadrant]);
+
     }
 
     /* insert the particle to one of the children */
     int quadrant = get_quadrant(particle, node);
     node->n_particles++;
-
     //assert(particle->node == NULL);
     insert_particle(particle, &node->children[quadrant]);
 
@@ -244,6 +244,7 @@ void all_init_particles(int num_particles, particle_t *particles)
 struct memory_t mem_node;
 
 void init_alloc(int nb_blocks) {
+  
   mem_init(&mem_node, 4*sizeof(node_t), nb_blocks);
 }
 

@@ -12,8 +12,8 @@ struct memory_t {
 };
 
 
-void mem_init(struct memory_t *mem, size_t block_size, int nb_blocks);
-void *mem_alloc(struct memory_t* mem);
-void mem_free(struct memory_t* mem, void *ptr);
+__device__ void mem_init(struct memory_t *mem, size_t block_size, int nb_blocks);
+__device__ void *mem_alloc(struct memory_t* mem);
+__device__ void mem_free(struct memory_t* mem, void *ptr);
 
 #endif

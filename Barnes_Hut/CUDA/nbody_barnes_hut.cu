@@ -20,76 +20,81 @@
 #include "nbody.cuh"
 #include "nbody_tools.cuh"
 
+#define THR_PER_BLK 200
+#define BLK_IN_GRD 2
+
 FILE* f_out=NULL;
 
 int nparticles=10;      /* number of particles */
 float T_FINAL=1.0;     /* simulation end time */
 
-particle_t*particles;
+__device__ particle_t* particles;
+__device__ node_t *root;
+__device__ int device_nparticles=0;
+__device__ double sum_speed_sq = 0;
+__device__ double max_acc = 0;
+__device__ double max_speed = 0;
 
-node_t *root;
+double max_acc_host = 0;
+double max_speed_host = 0;
+/* Initialize a node */
+__global__ void init_node_outside(double x_min, double x_max, double y_min, double y_max){
+  //root->parent = parent;
+  root->children = NULL;
+  root->n_particles = 0;
+  root->particle = NULL;
+  root->x_min = x_min;
+  root->x_max = x_max;
+  root->y_min = y_min;
+  root->y_max = y_max;
+  root->depth = 0;
 
+  root->mass= 0;
+  root->x_center = 0;
+  root->y_center = 0;
+  assert(x_min != x_max);
+  assert(y_min != y_max);
+}
 
-double sum_speed_sq = 0;
-double max_acc = 0;
-double max_speed = 0;
+/*
+  Place particles in their initial positions.
+*/
+__global__ void all_init_particles(int num_particles)
+{
+  int    i;
+  double total_particle = num_particles;
 
-/*****************************************
-START: Private revision to make the tree as an array
-******************************************/
-#include <stdint.h>
-#define CHILD_NUM 4
+  for (i = 0; i < num_particles; i++) {
+    particle_t *particle = &particles[i];
+#if 0
+    particle->x_pos = ((rand() % max_resolution)- (max_resolution/2))*2.0 / max_resolution;
+    particle->y_pos = ((rand() % max_resolution)- (max_resolution/2))*2.0 / max_resolution;
+    particle->x_vel = particle->y_pos;
+    particle->y_vel = particle->x_pos;
+#else
+    particle->x_pos = i*2.0/num_particles - 1.0;
+    particle->y_pos = 0.0;
+    particle->x_vel = 0.0;
+    particle->y_vel = particle->x_pos;
+#endif
+    particle->mass = 1.0 + (num_particles+i)/total_particle;
+    particle->node = NULL;
 
-struct level_node{
-  node_t *nodes;
-}level_node_t;
-
-int *index_record;
-level_node *array_root;
-bool isLeaf(node_t* some_node){
-  if(some_node->children==NULL){
-    return true;
+    //insert_particle(particle, root);
   }
-  return false;
 }
 
-int mortonCode(int row, int col){
-    uint64_t morton = 0;
-    row = (uint64_t) row;
-    col =(uint64_t) col;
-    for (int i = 0; i < sizeof(row) * 8; i++) {
-        morton |= (row & (uint64_t)1 << i) << i | (col & (uint64_t)1 << i) << (i + 1);
-    }
-    return morton;
+__global__ void initial_root(){
+  root = (node_t*)malloc(sizeof(node_t));
 }
-
-void reorganize_tree_as_an_array(node_t *quad_tree){
-  int i;
- 
-	if (quad_tree == NULL) return;
-  // TODO: Based on the root range and the node range to confirm the coordinate of the cell
-  int index = 
-	if (isLeaf(quad_tree)&&quad_tree->particle==NULL)
-	{
-		return;
-	}else if(isLeaf(quad_tree)&&quad_tree->particle!=NULL){
-
-    return;
-  }else{
-
-  }
-	for ( i = 0; i < CHILD_NUM; ++i )
-		reorganize_tree_as_an_array(&(quad_tree->children[i]));
-}
-
-/*****************************************
-END: Private revision to make the tree as an array
-******************************************/
 
 void init() {
-  init_alloc(4*nparticles);
-  root = (node_t*)malloc(sizeof(node_t));
-  init_node(root, NULL, XMIN, XMAX, YMIN, YMAX);
+  init_alloc<<<1,1>>>(4*nparticles);
+  cudaDeviceSynchronize();
+  initial_root<<<1,1>>>();
+  cudaDeviceSynchronize();
+  init_node_outside<<<1,1>>>(XMIN, XMAX, YMIN, YMAX);
+  cudaDeviceSynchronize();
 }
 
 #ifdef DISPLAY
@@ -101,7 +106,7 @@ extern Window theMain;       /* declared in ui.h but are also required here.   *
 /* compute the force that a particle with position (x_pos, y_pos) and mass 'mass'
  * applies to particle p
  */
-void compute_force(particle_t*p, double x_pos, double y_pos, double mass) {
+__device__ void compute_force(particle_t*p, double x_pos, double y_pos, double mass) {
   double x_sep, y_sep, dist_sq, grav_base;
 
   x_sep = x_pos - p->x_pos;
@@ -116,7 +121,7 @@ void compute_force(particle_t*p, double x_pos, double y_pos, double mass) {
 }
 
 /* compute the force that node n acts on particle p */
-void compute_force_on_particle(node_t* n, particle_t *p) {
+__device__ void compute_force_on_particle(node_t* n, particle_t *p) {
   if(! n || n->n_particles==0) {
     return;
   }
@@ -170,7 +175,7 @@ void compute_force_on_particle(node_t* n, particle_t *p) {
   }
 }
 
-void compute_force_in_node(node_t *n) {
+__device__ void compute_force_in_node(node_t *n) {
   if(!n) return;
 
   if(n->particle) {
@@ -183,12 +188,13 @@ void compute_force_in_node(node_t *n) {
     int i;
     for(i=0; i<4; i++) {
       compute_force_in_node(&n->children[i]);
+      
     }
   }
 }
 
 /* compute the new position/velocity */
-void move_particle(particle_t*p, double step, node_t* new_root) {
+__device__ void move_particle(particle_t*p, double step, node_t* new_root) {
 
   p->x_pos += (p->x_vel)*step;
   p->y_pos += (p->y_vel)*step;
@@ -196,7 +202,7 @@ void move_particle(particle_t*p, double step, node_t* new_root) {
   double y_acc = p->y_force/p->mass;
   p->x_vel += x_acc*step;
   p->y_vel += y_acc*step;
-
+  //printf("x_vel: %lf, y_vel: %lf, step: %lf, x_acc: %lf, y_acc: %lf\n",p->x_vel,p->y_vel,step,x_acc,y_acc);
   /* compute statistics */
   double cur_acc = (x_acc*x_acc + y_acc*y_acc);
   cur_acc = sqrt(cur_acc);
@@ -213,16 +219,15 @@ void move_particle(particle_t*p, double step, node_t* new_root) {
      p->y_pos < new_root->y_min ||
      p->y_pos > new_root->y_max) {
     free(p);
-    nparticles--;
+    device_nparticles--;
   } else {
     insert_particle(p, new_root);
   }
 }
 
 /* compute the new position of the particles in a node */
-void move_particles_in_node(node_t*n, double step, node_t *new_root) {
+__device__ void move_particles_in_node(node_t*n, double step, node_t *new_root) {
   if(!n) return;
-
   if(n->particle) {
     particle_t*p = n->particle;
     move_particle(p, step, new_root);
@@ -241,30 +246,33 @@ void move_particles_in_node(node_t*n, double step, node_t *new_root) {
   Update positions, velocity, and acceleration.
   Return local computations.
 */
-void all_move_particles(double step)
-{
-  /* First calculate force for particles. */
-  //compute_force_in_node(root);
-  /**********************************
-  WARNING: revision field
-  **********************************/
-  array_root = (level_node*)malloc(sizeof(level_node)*(int)pow(4,root->depth-1));
-  index_record = (int*)malloc(sizeof(int)*nparticles);
-  int i=0;
-  for(;i<nparticles;i++){
+__global__ void compute_all_particles(double step){
+  int idx = blockIdx.x*blockDim.x+threadIdx.x;
+  int total_thread_num = THR_PER_BLK*BLK_IN_GRD;
+  int threadTasks = (int)device_nparticles/total_thread_num;
+  int up_limit = threadTasks;
+  if(idx==total_thread_num-1) up_limit = device_nparticles-(total_thread_num-1)*threadTasks;
+  int i;
+  for(i=idx*threadTasks;i<idx*threadTasks+up_limit;i++){
     compute_force_in_node(particles[i].node);
   }
+}
+__global__ void all_move_particles(double step)
+{
+  //i=device_nparticles-2;
+  int i=0;
+  for(;i<3;i++){
+    printf("{%lf,%lf}\n",particles[i].x_pos,particles[i].y_pos);
+  }
+  printf("\n");
   node_t* new_root = (node_t*)malloc(sizeof(node_t));
   init_node(new_root, NULL, XMIN, XMAX, YMIN, YMAX);
-
   /* then move all particles and return statistics */
   move_particles_in_node(root, step, new_root);
 
   free_node(root);
   free(root);
-  free(array_root);
-  free(index_record);
-  root = new_root;
+  root = new_root; 
 }
 
 void run_simulation() {
@@ -273,15 +281,22 @@ void run_simulation() {
   while (t < T_FINAL && nparticles>0) {
     /* Update time. */
     t += dt;
+    //printf("\nDT:%lf\n",dt);
+    
     /* Move particles with the current and compute rms velocity. */
-    all_move_particles(dt);
-
+    compute_all_particles<<<THR_PER_BLK, BLK_IN_GRD>>>(dt);
+    cudaDeviceSynchronize();
+    all_move_particles<<<1,1>>>(dt);
+    cudaDeviceSynchronize();
+    cudaMemcpyFromSymbol(&max_speed_host, max_speed, sizeof(double));
+    cudaMemcpyFromSymbol(&max_acc_host, max_acc, sizeof(double));
+    //printf("DT TIME: {%lf,%lf}\n",max_speed_host, max_acc_host);
     /* Adjust dt based on maximum speed and acceleration--this
        simple rule tries to insure that no velocity will change
        by more than 10% */
-
-    dt = 0.1*max_speed/max_acc;
-
+    
+    dt = 0.1*max_speed_host/max_acc_host;
+    
     /* Plot the movement of the particle */
 #if DISPLAY
     node_t *n = root;
@@ -290,12 +305,14 @@ void run_simulation() {
     flush_display();
 #endif
   }
+  cudaError_t cudaStatus = cudaGetLastError();
+  printf(cudaGetErrorString(cudaStatus));
 }
 
 /* create a quad-tree from an array of particles */
-void insert_all_particles(int nparticles, particle_t*particles, node_t*root) {
+__global__ void insert_all_particles(int num) {
   int i;
-  for(i=0; i<nparticles; i++) {
+  for(i=0; i<num; i++) {
     insert_particle(&particles[i], root);
   }
 }
@@ -303,22 +320,41 @@ void insert_all_particles(int nparticles, particle_t*particles, node_t*root) {
 /*
   Simulate the movement of nparticles particles.
 */
+
+__global__ void malloc_particles(int num){
+  particles = (particle_t*)malloc(sizeof(particle_t)*num);
+}
+
 int main(int argc, char**argv)
 {
+  size_t Stack_Size;
+  cudaDeviceGetLimit(&Stack_Size, cudaLimitStackSize);
+  printf("Original stack size: %d\n",Stack_Size);
+  cudaDeviceSetLimit(cudaLimitStackSize,Stack_Size*8);
+  cudaDeviceGetLimit(&Stack_Size, cudaLimitStackSize);
+  printf("Current size: %d\n",Stack_Size);
   if(argc >= 2) {
     nparticles = atoi(argv[1]);
   }
   if(argc == 3) {
     T_FINAL = atof(argv[2]);
   }
+  
+  cudaMemcpyToSymbol(device_nparticles,&nparticles,sizeof(int));
+
 
   init();
 
   /* Allocate global shared arrays for the particles data set. */
-  particles = (particle_t*)malloc(sizeof(particle_t)*nparticles);
-  all_init_particles(nparticles, particles);
-  insert_all_particles(nparticles, particles, root);
-
+  malloc_particles<<<1,1>>>(nparticles);
+  cudaDeviceSynchronize();
+  
+  
+  all_init_particles<<<1,1>>>(nparticles);
+  cudaDeviceSynchronize();
+  insert_all_particles<<<1,1>>>(nparticles);
+  cudaDeviceSynchronize();
+  
   /* Initialize thread data structures */
 #ifdef DISPLAY
   /* Open an X window to display the particles */
@@ -334,9 +370,9 @@ int main(int argc, char**argv)
   gettimeofday(&t2, NULL);
 
   double duration = (t2.tv_sec -t1.tv_sec)+((t2.tv_usec-t1.tv_usec)/1e6);
-
+  
 #ifdef DUMP_RESULT
-  FILE* f_out = fopen("particles.log", "w");
+  FILE* f_out = fopen("particles_cm.log", "w");
   assert(f_out);
   print_particles(f_out, root);
   fclose(f_out);
@@ -360,6 +396,9 @@ int main(int argc, char**argv)
   /* Close the X window used to display the particles */
   XCloseDisplay(theDisplay);
 #endif
-
+  particle_t* host_particles = (particle_t*)malloc(sizeof(particle_t)*nparticles);
+  cudaMemcpyFromSymbol(host_particles, particles, sizeof(particle_t)*nparticles);
+  cudaDeviceSynchronize();
+  free(host_particles);
   return 0;
 }

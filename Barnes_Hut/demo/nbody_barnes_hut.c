@@ -193,10 +193,14 @@ void all_move_particles(double step)
 {
   /* First calculate force for particles. */
   compute_force_in_node(root);
-
+ int i=0;
+  for(;i<3;i++){
+    printf("{%lf,%lf}\n",particles[i].x_pos,particles[i].y_pos);
+  }
+  printf("\n");
   node_t* new_root = malloc(sizeof(node_t));
   init_node(new_root, NULL, XMIN, XMAX, YMIN, YMAX);
-
+  //printf("XMIN: %lf, XMAX: %lf, YMIN: %lf, YMAX: %lf\n", XMIN,XMAX,YMIN,YMAX);
   /* then move all particles and return statistics */
   move_particles_in_node(root, step, new_root);
 
@@ -217,9 +221,10 @@ void run_simulation() {
     /* Adjust dt based on maximum speed and acceleration--this
        simple rule tries to insure that no velocity will change
        by more than 10% */
-
+//printf("%lf\n",t);
     dt = 0.1*max_speed/max_acc;
-
+    //printf("DT TIME: {%lf,%lf}\n",max_speed, max_acc);
+    
     /* Plot the movement of the particle */
 #if DISPLAY
     node_t *n = root;
@@ -231,11 +236,13 @@ void run_simulation() {
 }
 
 /* create a quad-tree from an array of particles */
-void insert_all_particles(int nparticles, particle_t*particles, node_t*root) {
+void insert_all_particles(int nparticles, particle_t* particles, node_t* root) {
   int i;
   for(i=0; i<nparticles; i++) {
     insert_particle(&particles[i], root);
+    
   }
+  printf("current level: %d\n", root->depth);
 }
 
 /*
@@ -243,6 +250,7 @@ void insert_all_particles(int nparticles, particle_t*particles, node_t*root) {
 */
 int main(int argc, char**argv)
 {
+  
   if(argc >= 2) {
     nparticles = atoi(argv[1]);
   }

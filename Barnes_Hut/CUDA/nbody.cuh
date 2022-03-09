@@ -1,8 +1,10 @@
 #ifndef NBODY_H
 #define NBODY_H
-
 struct node;
 struct particle;
+//#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+static int host_thread_per_block = 5;
+static int host_block_in_grid = 1;
 
 /*
   This structure holds information for a single particle,
@@ -33,7 +35,6 @@ typedef struct node {
 
 
 extern int nparticles;		/* number of particles to simulate */
-
 /* used for debugging the display of the Barnes-Hut application */
 #define DRAW_BOXES 0
 
