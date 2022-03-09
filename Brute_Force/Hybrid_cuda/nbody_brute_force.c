@@ -175,9 +175,8 @@ int main(int argc, char**argv)
     counts[0] = root_task;
     
     for (i = 1; i < size; i++) {
-      #pragma omp task
-        displs[i] = root_task + nums_per_proc * (i-1);
-        counts[i] = nums_per_proc;
+      displs[i] = root_task + nums_per_proc * (i-1);
+      counts[i] = nums_per_proc;
     }
 
   }
@@ -202,11 +201,6 @@ int main(int argc, char**argv)
         for (i = root_task + nums_per_proc*(rank-1); i < root_task + nums_per_proc * rank; i++){
           particles[i].x_force = 0;
           particles[i].y_force = 0;
-          // for(j = 0; j < nparticles; j++) {
-          //   particle_t*p = &particles[j];
-          //   //compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
-          //   cuda_compute_force(&particles[i], p->x_pos, p->y_pos, p->mass);
-          // }
           cuda_compute_force(i, nparticles, particles);
           par_per_proc[i-root_task-nums_per_proc*(rank-1)] = particles[i];
         }
@@ -243,16 +237,13 @@ int main(int argc, char**argv)
 
       /* Recv the max_acc and max_speed from other procs */
       for (i = 1; i < size; i++) {
-        #pragma omp task
-        {
-          double max_acc_recv, max_speed_recv;
-          MPI_Recv(&max_acc_recv, 1, MPI_DOUBLE, i, ACC_TAG, MPI_COMM_WORLD, &status);
-          MPI_Recv(&max_speed_recv, 1, MPI_DOUBLE, i, SPEED_TAG, MPI_COMM_WORLD, &status);
-          if (max_acc_recv > max_acc) 
-            max_acc = max_acc_recv;
-          if (max_speed_recv > max_speed)
-            max_speed = max_speed_recv;
-        }
+        double max_acc_recv, max_speed_recv;
+        MPI_Recv(&max_acc_recv, 1, MPI_DOUBLE, i, ACC_TAG, MPI_COMM_WORLD, &status);
+        MPI_Recv(&max_speed_recv, 1, MPI_DOUBLE, i, SPEED_TAG, MPI_COMM_WORLD, &status);
+        if (max_acc_recv > max_acc) 
+          max_acc = max_acc_recv;
+        if (max_speed_recv > max_speed)
+          max_speed = max_speed_recv;
       }
     }
 
