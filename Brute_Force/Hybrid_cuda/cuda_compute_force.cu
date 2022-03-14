@@ -2,12 +2,9 @@
 #include <stdlib.h>
 #include "nbody.h"
 
-/*
-  1. *i - index of particle to be compute_forced
-  2. *nparticles - # of particles
-  3. d_p points to the whole particles 
+/* Add atomicAdd for double operations 
+   Ref: https://www.micc.unifi.it/bertini/download/gpu-programming-basics/2017/gpu_cuda_5.pdf
 */
-
 __device__ double atomicAddDouble(double* address, double val)
 {
   unsigned long long int* address_as_ull =
@@ -24,20 +21,22 @@ __device__ double atomicAddDouble(double* address, double val)
   return __longlong_as_double(old);
 }
 
+/*
+  1. *i - index of particle to be compute_forced
+  2. *nparticles - # of particles
+  3. d_p points to the whole particles 
+*/
 __global__ void __compute_force__ (int * i, int * nparticles, particle_t * d_p) 
 {
   
   particle_t * computed_p = &d_p[*i];  
   int j;
 
-  // __syncthreads();
-
   for(j = blockIdx.x * blockDim.x + threadIdx.x;
       j < *nparticles;
       j += blockDim.x*gridDim.x) 
   {
     particle_t * p = &d_p[j];
-    // change the cpu version to cuda version
     double x_sep, y_sep, dist_sq, grav_base;
 
     x_sep = p->x_pos - computed_p->x_pos;
@@ -46,9 +45,6 @@ __global__ void __compute_force__ (int * i, int * nparticles, particle_t * d_p)
 
     /* Use the 2-dimensional gravity rule: F = d * (GMm/d^2) */
     grav_base = GRAV_CONSTANT * (computed_p->mass) * (p->mass)/dist_sq;
-
-    // computed_p->x_force += grav_base*x_sep;
-    // computed_p->y_force += grav_base*y_sep;
 
     // using atomicAdd
     atomicAddDouble(&(computed_p->x_force), grav_base*x_sep);
@@ -84,8 +80,7 @@ extern "C" void cuda_compute_force(int i, int nparticles, particle_t * p)
   if (cudaStatus != cudaSuccess) {
     printf(cudaGetErrorString(cudaStatus));
   }
-  
-  // TODO: check the return .
+
   int thr_per_blk = 1024; // maximum
   int blk_in_grid = (int) ceil( float(nparticles) / thr_per_blk );
 

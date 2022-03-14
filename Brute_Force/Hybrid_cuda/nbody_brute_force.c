@@ -31,8 +31,6 @@ particle_t*particles;
 double sum_speed_sq = 0;
 double max_acc = 0;
 double max_speed = 0;
-int init_signal = 1; // signaling slaves to initialize first round computing 
-
 
 int ACC_TAG = 97;
 int SPEED_TAG = 96;
@@ -145,8 +143,6 @@ int main(int argc, char**argv)
   simple_init (100,100,DISPLAY_SIZE, DISPLAY_SIZE);
 #endif
 
-  // struct timeval t1, t2;
-  // gettimeofday(&t1, NULL);
   double t1, t2, duration;
 
   /* Start simulation */
@@ -181,7 +177,6 @@ int main(int argc, char**argv)
 
   }
 
-  // int step = 0;
   while (t < T_FINAL && nparticles > 0) {
     /* Update time. */
     t += dt;
@@ -247,8 +242,6 @@ int main(int argc, char**argv)
       }
     }
 
-    MPI_Barrier(MPI_COMM_WORLD);
-
     MPI_Gatherv(par_per_proc, nums_per_proc, particle_mpi_t,
                 particles, counts, displs, particle_mpi_t,
                 0, MPI_COMM_WORLD);
@@ -257,12 +250,9 @@ int main(int argc, char**argv)
     if(rank == 0) {
 #pragma omp parallel for private(i) schedule(dynamic)
         for(i = 0; i < nparticles; i++) {
-          // #pragma omp task
           move_particle(&particles[i], dt);
         }
     }
-
-    MPI_Barrier(MPI_COMM_WORLD);
 
     // send new positions, forces, acc
     MPI_Bcast(particles, nparticles, particle_mpi_t, 0, MPI_COMM_WORLD);
@@ -270,13 +260,9 @@ int main(int argc, char**argv)
     MPI_Bcast(&max_speed, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(&max_acc, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    MPI_Barrier(MPI_COMM_WORLD);
-
     /* Adjust dt based on maximum speed and acceleration--this
        simple rule tries to insure that no velocity will change
        by more than 10% */
-
-    // printf("Max speed is %f, Max acc is %f\n", max_speed, max_acc);
     dt = 0.1*max_speed/max_acc;
     step++;
 
@@ -287,7 +273,6 @@ int main(int argc, char**argv)
 #endif
   } 
 
-  // gettimeofday(&t2, NULL);
   if (rank == 0) {
     t2 = MPI_Wtime();
     printf("t2 = %f\n", t2);
@@ -307,7 +292,7 @@ int main(int argc, char**argv)
   free(par_per_proc);
   free(particles);
 
-  if (rank==0) {
+  if (rank == 0) {
     printf("-----------------------------\n");
     printf("nparticles: %d\n", nparticles);
     printf("T_FINAL: %f\n", T_FINAL);
