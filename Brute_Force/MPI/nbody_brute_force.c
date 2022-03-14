@@ -245,7 +245,7 @@ int main(int argc, char**argv)
       }
     }
 
-    MPI_Barrier(MPI_COMM_WORLD);
+    // MPI_Barrier(MPI_COMM_WORLD);
 
     MPI_Gatherv(par_per_proc, nums_per_proc, particle_mpi_t,
                 particles, counts, displs, particle_mpi_t,
@@ -259,15 +259,12 @@ int main(int argc, char**argv)
       }
     }
 
-    MPI_Barrier(MPI_COMM_WORLD);
-
     // send new positions, forces, acc
     MPI_Bcast(particles, nparticles, particle_mpi_t, 0, MPI_COMM_WORLD);
 
     MPI_Bcast(&max_speed, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(&max_acc, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    MPI_Barrier(MPI_COMM_WORLD);
 
     /* Adjust dt based on maximum speed and acceleration--this
        simple rule tries to insure that no velocity will change
