@@ -30,15 +30,11 @@ particle_t*particles;
 double sum_speed_sq = 0;
 double max_acc = 0;
 double max_speed = 0;
-int init_signal = 1; // signaling slaves to initialize first round computing 
 
 /* MPI_Tag for two types of jobs  */
-// int compute_tag = 99;
-// int move_tag = 98; 
 int ACC_TAG = 97;
 int SPEED_TAG = 96;
 double dt = 0.01;
-//double x_sep, y_sep, dist_sq, grav_base; // for debug, should be put in compute force
 int step = 0;
 
 void init() {
@@ -132,6 +128,10 @@ int main(int argc, char**argv)
    */
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
+  if (size == 1) {
+    printf("Please salloc more than 1 rank for MPI!\n");
+    exit(1);
+  }
   MPI_Status status;
 
   /* Allocate global shared arrays for the particles data set. */
@@ -144,8 +144,6 @@ int main(int argc, char**argv)
   simple_init (100,100,DISPLAY_SIZE, DISPLAY_SIZE);
 #endif
 
-  // struct timeval t1, t2;
-  // gettimeofday(&t1, NULL);
   double t1, t2, duration;
 
   /* Start simulation */
@@ -179,7 +177,6 @@ int main(int argc, char**argv)
     }
   }
 
-  // int step = 0;
   while (t < T_FINAL && nparticles > 0) {
     /* Update time. */
     t += dt;
@@ -253,8 +250,7 @@ int main(int argc, char**argv)
     MPI_Gatherv(par_per_proc, nums_per_proc, particle_mpi_t,
                 particles, counts, displs, particle_mpi_t,
                 0, MPI_COMM_WORLD);
-    
-    // int test_num = 1;
+  
 
     /* 2. Move task (only in root) */ 
     if(rank == 0){
@@ -277,7 +273,6 @@ int main(int argc, char**argv)
        simple rule tries to insure that no velocity will change
        by more than 10% */
 
-    // printf("Max speed is %f, Max acc is %f\n", max_speed, max_acc);
     dt = 0.1*max_speed/max_acc;
     step++;
 
@@ -288,7 +283,6 @@ int main(int argc, char**argv)
 #endif
   } 
 
-  // gettimeofday(&t2, NULL);
   if (rank == 0) {
     t2 = MPI_Wtime();
     printf("t2 = %f\n", t2);
@@ -296,7 +290,6 @@ int main(int argc, char**argv)
   }
   t2 = MPI_Wtime();
   duration = t2 - t1;
-  //double duration = (t2.tv_sec-t1.tv_sec)+((t2.tv_usec-t1.tv_usec)/1e6);
 
 #ifdef DUMP_RESULT
   FILE* f_out = fopen("particles.log", "w");
