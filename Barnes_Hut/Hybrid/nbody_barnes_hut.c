@@ -207,7 +207,7 @@ void all_move_particles(double step)
 
   #pragma omp parallel for schedule(dynamic)
     for(i=0; i < up_level-begin; i++){
-      compute_force_in_node(particles[i].node);
+      compute_force_in_node(particles[i+begin].node);
       vice_particles[i-rank*process_sequence_num+begin].mass=particles[i+begin].mass;
       vice_particles[i-rank*process_sequence_num+begin].x_force=particles[i+begin].x_force;
       vice_particles[i-rank*process_sequence_num+begin].y_force=particles[i+begin].y_force;
@@ -346,12 +346,12 @@ int main(int argc, char**argv)
   fclose(f_out);
 #endif
 
-  printf("-----------------------------\n");
-  printf("nparticles: %d\n", nparticles);
-  printf("T_FINAL: %f\n", T_FINAL);
-  printf("-----------------------------\n");
-  printf("Simulation took %lf s to complete\n", duration);
-
+  //printf("-----------------------------\n");
+  //printf("nparticles: %d\n", nparticles);
+  //printf("T_FINAL: %f\n", T_FINAL);
+  //printf("-----------------------------\n");
+  //printf("Simulation took %lf s to complete\n", duration);
+printf("%lf\n", duration);
 #ifdef DISPLAY
   node_t *n = root;
   clear_display();
