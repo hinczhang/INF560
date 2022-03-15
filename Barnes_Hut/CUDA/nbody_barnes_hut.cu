@@ -20,7 +20,7 @@
 #include "nbody.cuh"
 #include "nbody_tools.cuh"
 
-#define THR_PER_BLK 200
+#define THR_PER_BLK 500
 #define BLK_IN_GRD 2
 
 FILE* f_out=NULL;
@@ -260,11 +260,11 @@ __global__ void compute_all_particles(double step){
 __global__ void all_move_particles(double step)
 {
   //i=device_nparticles-2;
-  int i=0;
+  /*int i=0;
   for(;i<3;i++){
     printf("{%lf,%lf}\n",particles[i].x_pos,particles[i].y_pos);
   }
-  printf("\n");
+  printf("\n");*/
   node_t* new_root = (node_t*)malloc(sizeof(node_t));
   init_node(new_root, NULL, XMIN, XMAX, YMIN, YMAX);
   /* then move all particles and return statistics */
@@ -305,8 +305,8 @@ void run_simulation() {
     flush_display();
 #endif
   }
-  cudaError_t cudaStatus = cudaGetLastError();
-  printf(cudaGetErrorString(cudaStatus));
+  //cudaError_t cudaStatus = cudaGetLastError();
+  //printf(cudaGetErrorString(cudaStatus));
 }
 
 /* create a quad-tree from an array of particles */
@@ -329,10 +329,10 @@ int main(int argc, char**argv)
 {
   size_t Stack_Size;
   cudaDeviceGetLimit(&Stack_Size, cudaLimitStackSize);
-  printf("Original stack size: %d\n",Stack_Size);
+  //printf("Original stack size: %d\n",Stack_Size);
   cudaDeviceSetLimit(cudaLimitStackSize,Stack_Size*8);
   cudaDeviceGetLimit(&Stack_Size, cudaLimitStackSize);
-  printf("Current size: %d\n",Stack_Size);
+  //printf("Current size: %d\n",Stack_Size);
   if(argc >= 2) {
     nparticles = atoi(argv[1]);
   }

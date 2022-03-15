@@ -1,13 +1,11 @@
 #ifndef NBODY_H
 #define NBODY_H
-#include<mpi.h>
-#include<omp.h>
-#include<math.h>
 struct node;
 struct particle;
+//#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+static int host_thread_per_block = 5;
+static int host_block_in_grid = 1;
 
-int process_num;
-int rank;
 /*
   This structure holds information for a single particle,
   including position, velocity, and mass.
@@ -20,16 +18,6 @@ typedef struct particle{
   struct node* node; 		/* only used for the barnes-hut algorithm */
 } particle_t;
 
-typedef struct particle_vice{
-  double x_pos;
-  double y_pos;		/* position of the particle */
-  double x_vel;
-  double y_vel;		/* velocity of the particle */
-  double x_force;
-  double y_force;	/* gravitational forces that apply against this particle */
-  double mass;			/* mass of the particle */
-  //struct node* node; 		/* only used for the barnes-hut algorithm */
-} particle_vice_t;
 
 /* Only used in the barnes-Hut algorithm */
 typedef struct node {
@@ -47,7 +35,6 @@ typedef struct node {
 
 
 extern int nparticles;		/* number of particles to simulate */
-
 /* used for debugging the display of the Barnes-Hut application */
 #define DRAW_BOXES 0
 

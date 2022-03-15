@@ -19,6 +19,7 @@
 #include "ui.h"
 #include "nbody.h"
 #include "nbody_tools.h"
+#include "queue.h"
 
 FILE* f_out=NULL;
 
@@ -62,7 +63,48 @@ void compute_force(particle_t*p, double x_pos, double y_pos, double mass) {
   p->x_force += grav_base*x_sep;
   p->y_force += grav_base*y_sep;
 }
-
+/* non-recursive stype of compting force on particle*/
+void non_rec_compute_force_on_particle(particle_t *p){
+  p->x_force = 0;
+  p->y_force = 0;
+  Queue *queue = CreateQueue();
+  AddQ(queue, root);
+  while(!IsEmptyQ(queue)){
+    node_t *n=DeleteQ(queue);
+    /*
+    Computing Area begins
+    *//*
+    if(! n || n->n_particles==0) {
+      continue;
+    }*/
+    if(n->particle) {
+      /* only one particle */
+      assert(n->children == NULL);
+      compute_force(p, n->x_center, n->y_center, n->mass);
+    }else{
+      #define THRESHOLD 2
+      double size = n->x_max - n->x_min; // width of n
+      double diff_x = n->x_center - p->x_pos;
+      double diff_y = n->y_center - p->y_pos;
+      double distance = sqrt(diff_x*diff_x + diff_y*diff_y);
+     
+      if(size / distance < THRESHOLD) {
+        compute_force(p, n->x_center, n->y_center, n->mass);
+      }else{
+        int i;
+        if(n->children==NULL) continue;
+        for(i=0;i<4;i++){
+          AddQ(queue, &n->children[i]);
+        }
+      }
+    }
+    /*
+    Computing Area ends
+    */
+    
+  }
+  free(queue);
+}
 /* compute the force that node n acts on particle p */
 void compute_force_on_particle(node_t* n, particle_t *p) {
   if(! n || n->n_particles==0) {
@@ -150,10 +192,11 @@ void move_particle(particle_t*p, double step, node_t* new_root) {
   cur_acc = sqrt(cur_acc);
   double speed_sq = (p->x_vel)*(p->x_vel) + (p->y_vel)*(p->y_vel);
   double cur_speed = sqrt(speed_sq);
+  
   sum_speed_sq += speed_sq;
   max_acc = MAX(max_acc, cur_acc);
   max_speed = MAX(max_speed, cur_speed);
-
+  //printf("CURRENT SPEED: %lf, ACCELERATE: %lf\nMAX_SPEED: %lf, MAX_ACCELERATE: %lf\n\n",cur_speed,cur_acc,max_speed,max_acc);
   p->node = NULL;
   if(p->x_pos < new_root->x_min ||
      p->x_pos > new_root->x_max ||
@@ -191,12 +234,23 @@ void move_particles_in_node(node_t*n, double step, node_t *new_root) {
 void all_move_particles(double step)
 {
   /* First calculate force for particles. */
-  compute_force_in_node(root);
+  int i;
+  for(i=0;i<nparticles;i++){
+    non_rec_compute_force_on_particle(&particles[i]);
+    compute_force_in_node(particles[i].node);
+  }
+  
+  /*i=0;
+  for(;i<3;i++){
+    printf("{%lf,%lf}\n",particles[i].x_pos,particles[i].y_pos);
+  }
+  printf("step: %lf\n",step);
+  printf("\n");*/
   node_t* new_root = malloc(sizeof(node_t));
   init_node(new_root, NULL, XMIN, XMAX, YMIN, YMAX);
-  //printf("XMIN: %lf, XMAX: %lf, YMIN: %lf, YMAX: %lf\n", XMIN,XMAX,YMIN,YMAX);
   /* then move all particles and return statistics */
   move_particles_in_node(root, step, new_root);
+  
   free_node(root);
   free(root);
   root = new_root;
@@ -214,6 +268,7 @@ void run_simulation() {
     /* Adjust dt based on maximum speed and acceleration--this
        simple rule tries to insure that no velocity will change
        by more than 10% */
+//printf("%lf\n",t);
     dt = 0.1*max_speed/max_acc;
     //printf("DT TIME: {%lf,%lf}\n",max_speed, max_acc);
     
@@ -234,6 +289,7 @@ void insert_all_particles(int nparticles, particle_t* particles, node_t* root) {
     insert_particle(&particles[i], root);
     
   }
+  printf("current level: %d\n", root->depth);
 }
 
 /*

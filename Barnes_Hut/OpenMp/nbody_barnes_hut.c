@@ -184,9 +184,9 @@ void move_particle(particle_t*p, double step, node_t* new_root) {
     free(p);
     nparticles--;
   } else {
-    omp_set_lock(&lock);
+    //omp_set_lock(&lock);
     insert_particle(p, new_root);
-    omp_unset_lock(&lock);
+    //omp_unset_lock(&lock);
   }
 }
 
@@ -202,9 +202,9 @@ void move_particles_in_node(node_t*n, double step, node_t *new_root) {
     int i;
     //#pragma omp parallel
     //{
-      #pragma omp single
+      //#pragma omp single
       for(i=0; i<4; i++) {
-        #pragma omp task
+        //#pragma omp task
         move_particles_in_node(&n->children[i], step, new_root);
       }
     //}
@@ -261,7 +261,7 @@ void run_simulation() {
     flush_display();
 #endif
   }
-  int i=0;
+  //int i=0;
   /*for(;i<nparticles;i++){
     printf("pos = (%lf,%lf)\n",particles[i].x_pos,particles[i].y_pos);
   }*/
