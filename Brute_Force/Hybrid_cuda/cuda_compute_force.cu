@@ -28,6 +28,7 @@ __device__ double atomicAddDouble(double* address, double val)
 */
 __global__ void __compute_force__ (int * i, int * nparticles, particle_t * d_p) 
 {
+  // without atomic action, can set one thread one particle to avoid synchronization
   
   particle_t * computed_p = &d_p[*i];  
   int j;
@@ -81,7 +82,7 @@ extern "C" void cuda_compute_force(int i, int nparticles, particle_t * p)
     printf(cudaGetErrorString(cudaStatus));
   }
 
-  int thr_per_blk = 1024; // maximum
+  int thr_per_blk = 100; // maximum
   int blk_in_grid = (int) ceil( float(nparticles) / thr_per_blk );
 
   __compute_force__<<<blk_in_grid,thr_per_blk>>>(d_i, d_nparticles, d_p);

@@ -234,16 +234,14 @@ int main(int argc, char**argv)
 
       /* Recv the max_acc and max_speed from other procs */
       for (i = 1; i < size; i++) {
-        #pragma omp task
-        {
-          double max_acc_recv, max_speed_recv;
-          MPI_Recv(&max_acc_recv, 1, MPI_DOUBLE, i, ACC_TAG, MPI_COMM_WORLD, &status);
-          MPI_Recv(&max_speed_recv, 1, MPI_DOUBLE, i, SPEED_TAG, MPI_COMM_WORLD, &status);
-          if (max_acc_recv > max_acc) 
-            max_acc = max_acc_recv;
-          if (max_speed_recv > max_speed)
-            max_speed = max_speed_recv;
-        }
+        double max_acc_recv, max_speed_recv;
+        MPI_Recv(&max_acc_recv, 1, MPI_DOUBLE, i, ACC_TAG, MPI_COMM_WORLD, &status);
+        MPI_Recv(&max_speed_recv, 1, MPI_DOUBLE, i, SPEED_TAG, MPI_COMM_WORLD, &status);
+        if (max_acc_recv > max_acc) 
+          max_acc = max_acc_recv;
+        if (max_speed_recv > max_speed)
+          max_speed = max_speed_recv;
+
       }
     }
 
