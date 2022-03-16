@@ -196,29 +196,46 @@ void all_move_particles(double step)
   // test array
   particle_vice_t* vice_particles = malloc(sizeof(particle_vice_t)*process_sequence_num);
   particle_vice_t* total_particles = malloc(sizeof(particle_vice_t)*process_sequence_num*process_num);
+  MPI_Datatype ParticleType;
+  MPI_Datatype types[7]={MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE};
+  int block_length[7]={1,1,1,1,1,1,1};
+  MPI_Aint displacement[7];
+
   int begin = rank*process_sequence_num;
   int up_level = nparticles>(rank+1)*(process_sequence_num)?(rank+1)*(process_sequence_num):nparticles;
-  #pragma omp parallel
-  {
-    #pragma omp parallel for schedule(dynamic)
-    for(int i = begin; i < up_level; i++){
-      compute_force_in_node(particles[i].node);
-      vice_particles[i-rank*process_sequence_num].mass=particles[i].mass;
-      vice_particles[i-rank*process_sequence_num].x_force=particles[i].x_force;
-      vice_particles[i-rank*process_sequence_num].y_force=particles[i].y_force;
-      vice_particles[i-rank*process_sequence_num].x_pos=particles[i].x_pos;
-      vice_particles[i-rank*process_sequence_num].y_pos=particles[i].y_pos;
-      vice_particles[i-rank*process_sequence_num].x_vel=particles[i].x_vel;
-      vice_particles[i-rank*process_sequence_num].y_vel=particles[i].y_vel;
+  int i=0;
+
+  #pragma omp parallel for schedule(dynamic)
+    for(i=0; i < up_level-begin; i++){
+      compute_force_in_node(particles[i+begin].node);
+      vice_particles[i-rank*process_sequence_num+begin].mass=particles[i+begin].mass;
+      vice_particles[i-rank*process_sequence_num+begin].x_force=particles[i+begin].x_force;
+      vice_particles[i-rank*process_sequence_num+begin].y_force=particles[i+begin].y_force;
+      vice_particles[i-rank*process_sequence_num+begin].x_pos=particles[i+begin].x_pos;
+      vice_particles[i-rank*process_sequence_num+begin].y_pos=particles[i+begin].y_pos;
+      vice_particles[i-rank*process_sequence_num+begin].x_vel=particles[i+begin].x_vel;
+      vice_particles[i-rank*process_sequence_num+begin].y_vel=particles[i+begin].y_vel;
     
     }
-  }
- 
+  
+
+  displacement[0]=offsetof(particle_vice_t,x_pos);
+  displacement[1]=offsetof(particle_vice_t,y_pos);
+  displacement[2]=offsetof(particle_vice_t,x_vel);
+  displacement[3]=offsetof(particle_vice_t,y_vel);
+  displacement[4]=offsetof(particle_vice_t,x_force);
+  displacement[5]=offsetof(particle_vice_t,y_force);
+  displacement[6]=offsetof(particle_vice_t,mass);
+
+  
+  MPI_Type_create_struct(7,block_length,displacement,types,&ParticleType);
+  MPI_Type_commit(&ParticleType);
+  i=0;
   MPI_Allgather(vice_particles,process_sequence_num,ParticleType,total_particles,process_sequence_num,ParticleType,MPI_COMM_WORLD);
   #pragma omp parallel
   {
     #pragma omp parallel for schedule(dynamic)
-    for(int i = 0; i < nparticles; i++){
+    for(i=0; i < nparticles; i++){
       particles[i].mass=total_particles[i].mass;
       particles[i].x_force=total_particles[i].x_force;
       particles[i].x_pos=total_particles[i].x_pos;
@@ -226,7 +243,7 @@ void all_move_particles(double step)
       particles[i].y_force=total_particles[i].y_force;
       particles[i].y_pos=total_particles[i].y_pos;
       particles[i].y_vel=total_particles[i].y_vel;
-    }
+   }
   }
   /*for(int i = 0; i < nparticles; i++){
     printf("rank: %d, x_force: %lf\n", rank, particles[i].x_force);
@@ -295,20 +312,7 @@ int main(int argc, char**argv)
   if(argc == 3) {
     T_FINAL = atof(argv[2]);
   }
-  MPI_Datatype types[7]={MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE,MPI_DOUBLE};
-  int block_length[7]={1,1,1,1,1,1,1};
-  MPI_Aint displacement[7];
-  displacement[0]=offsetof(particle_vice_t,x_pos);
-  displacement[1]=offsetof(particle_vice_t,y_pos);
-  displacement[2]=offsetof(particle_vice_t,x_vel);
-  displacement[3]=offsetof(particle_vice_t,y_vel);
-  displacement[4]=offsetof(particle_vice_t,x_force);
-  displacement[5]=offsetof(particle_vice_t,y_force);
-  displacement[6]=offsetof(particle_vice_t,mass);
-
   
-  MPI_Type_create_struct(7,block_length,displacement,types,&ParticleType);
-  MPI_Type_commit(&ParticleType);
 
   init();
 
@@ -342,12 +346,12 @@ int main(int argc, char**argv)
   fclose(f_out);
 #endif
 
-  printf("-----------------------------\n");
-  printf("nparticles: %d\n", nparticles);
-  printf("T_FINAL: %f\n", T_FINAL);
-  printf("-----------------------------\n");
-  printf("Simulation took %lf s to complete\n", duration);
-
+  //printf("-----------------------------\n");
+  //printf("nparticles: %d\n", nparticles);
+  //printf("T_FINAL: %f\n", T_FINAL);
+  //printf("-----------------------------\n");
+  //printf("Simulation took %lf s to complete\n", duration);
+printf("%lf\n", duration);
 #ifdef DISPLAY
   node_t *n = root;
   clear_display();

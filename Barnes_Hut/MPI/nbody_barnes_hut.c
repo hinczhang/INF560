@@ -202,8 +202,8 @@ void all_move_particles(double step)
   // test array
   particle_vice_t* vice_particles = malloc(sizeof(particle_vice_t)*process_sequence_num);
   particle_vice_t* total_particles = malloc(sizeof(particle_vice_t)*process_sequence_num*process_num);
-
-  for(int i = rank*process_sequence_num; i < nparticles&&i < (rank+1)*(process_sequence_num); i++){
+  int i=0;
+  for(i = rank*process_sequence_num; i < nparticles&&i < (rank+1)*(process_sequence_num); i++){
     compute_force_in_node(particles[i].node);
     vice_particles[i-rank*process_sequence_num].mass=particles[i].mass;
     vice_particles[i-rank*process_sequence_num].x_force=particles[i].x_force;
@@ -215,7 +215,7 @@ void all_move_particles(double step)
    
   }
   
-  
+  i=0;
   displacement[0]=offsetof(particle_vice_t,x_pos);
   displacement[1]=offsetof(particle_vice_t,y_pos);
   displacement[2]=offsetof(particle_vice_t,x_vel);
@@ -231,7 +231,7 @@ void all_move_particles(double step)
  
   MPI_Allgather(vice_particles,process_sequence_num,ParticleType,total_particles,process_sequence_num,ParticleType,MPI_COMM_WORLD);
 
-  for(int i = 0; i < nparticles; i++){
+  for(i = 0; i < nparticles; i++){
  
     particles[i].mass=total_particles[i].mass;
     particles[i].x_force=total_particles[i].x_force;
@@ -241,9 +241,9 @@ void all_move_particles(double step)
     particles[i].y_pos=total_particles[i].y_pos;
     particles[i].y_vel=total_particles[i].y_vel;
   }
-  for(int i = 0; i < nparticles; i++){
+  /*for(int i = 0; i < nparticles; i++){
     printf("rank: %d, x_force: %lf\n", rank, particles[i].x_force);
-  }
+  }*/
   free(vice_particles);
   free(total_particles);
   
@@ -285,6 +285,10 @@ void run_simulation() {
     }
 #endif
   }
+
+  /*for(;i<nparticles;i++){
+    printf("pos=(%lf,%lf)\n",particles[i].x_pos,particles[i].y_pos);
+  }*/
 }
 
 /* create a quad-tree from an array of particles */
@@ -304,7 +308,7 @@ int main(int argc, char**argv)
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &process_num);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
+  
   if(argc >= 2) {
     nparticles = atoi(argv[1]);
   }
@@ -320,6 +324,7 @@ int main(int argc, char**argv)
   //MPI_Scatter(particles,process_sequence_num,);
   
   insert_all_particles(nparticles, particles, root);
+  
   //printf("particle location: %lf in rank %d\n", particles[0].x_pos,rank);
   /* Initialize thread data structures */
 #ifdef DISPLAY
@@ -331,6 +336,7 @@ int main(int argc, char**argv)
     gettimeofday(&t1, NULL);
   }
   /* Main thread starts simulation ... */
+  
   run_simulation();
   MPI_Barrier(MPI_COMM_WORLD);
   if(rank==0){

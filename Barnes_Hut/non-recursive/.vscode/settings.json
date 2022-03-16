@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.tcc": "c",
+        "stdio.h": "c",
+        "queue.h": "c"
+    }
+}

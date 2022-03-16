@@ -1,6 +1,6 @@
 #ifndef NBODY_H
 #define NBODY_H
-#include<openmpi/mpi.h>
+#include<mpi.h>
 #include<omp.h>
 #include<math.h>
 struct node;
@@ -8,7 +8,6 @@ struct particle;
 
 int process_num;
 int rank;
-MPI_Datatype ParticleType;
 /*
   This structure holds information for a single particle,
   including position, velocity, and mass.

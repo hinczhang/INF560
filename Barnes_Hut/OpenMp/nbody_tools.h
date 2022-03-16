@@ -1,7 +1,8 @@
 #ifndef NBODY_TOOLS_H
 #define NBODY_TOOLS_H
 #include "nbody.h"
-
+#include<omp.h>
+static omp_lock_t lock;
 /* draw recursively the content of a node */
 void draw_node(node_t* n);
 

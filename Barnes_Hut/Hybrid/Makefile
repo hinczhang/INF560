@@ -8,8 +8,8 @@ OBJS	= ui.o xstuff.o nbody_tools.o nbody_alloc.o
 DISPLAY = -DDISPLAY
 #DISPLAY =
 
-#DUMP = -DDUMP_RESULT
-DUMP =
+DUMP = -DDUMP_RESULT
+#DUMP =
 
 all: $(TARGET)
 
@@ -20,6 +20,6 @@ nbody_barnes_hut: nbody_barnes_hut.o $(OBJS)
 	$(CC) $(VERBOSE) -o $@ $< $(OBJS)  $(LDFLAGS)
 
 %.o: %.c
-	$(CC) $(CFLAGS) -c $< $(VERBOSE) $(DISPLAY) $(DUMP)
+	$(CC) $(CFLAGS) -c $< $(VERBOSE) $(DUMP)
 clean:
 	rm -f *.o $(TARGET)
