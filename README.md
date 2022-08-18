@@ -1,5 +1,6 @@
 # Towards Paralleled N-Body Interaction
-[![paper](https://img.shields.io/badge/_-Paper-blue?logo=adobeacrobatreader)](https://github.com/Scofield626/INF560/blob/main/report/INF560_Report.pdf)&nbsp;&nbsp;
+Please view our report: [![paper](https://img.shields.io/badge/_-Paper-blue?logo=adobeacrobatreader)](https://github.com/Scofield626/INF560/blob/main/report/INF560_Report.pdf)&nbsp;&nbsp;  
+Please view our sildes: [![paper](https://img.shields.io/badge/_-Slides-green?logo=adobeacrobatreader)](https://github.com/Scofield626/INF560/blob/main/report/INF560.pdf)&nbsp;&nbsp;  
 
 INF560 Project (Parallel Computing)
 
